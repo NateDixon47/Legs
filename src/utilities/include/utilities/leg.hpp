@@ -1,11 +1,14 @@
 #pragma once
 
+// Single-leg kinematics for the bipedal robot.
+// This header DECLARES the interface (what data + functions the class has).
+// The implementation lives in leg.cpp. Pure C++/Eigen — no ROS dependencies.
+
 #include <Eigen/Geometry>
 #include <optional>
 #include <utility>
 
-// Single-leg kinematics for the bipedal robot.
-// Pure C++/Eigen — no ROS dependencies. The implementation lives in leg.cpp.
+namespace legs {
 
 enum class Side { Left, Right };
 
@@ -27,6 +30,26 @@ struct LegLimit {
     JointLimit knee_pitch;
 };
 
+// One joint's fixed origin (from the URDF) plus its rotation axis.
+struct JointOrigin {
+    double roll, pitch, yaw;   // fixed rotation (rpy)
+    double x, y, z;            // fixed translation (xyz)
+    int axis;                  // 1=X, 2=Y, 3=Z, 0 = fixed (no joint rotation)
+};
+
+// Everything that differs between the left and right leg.
+struct LegParams {
+    JointOrigin hip_yaw;
+    JointOrigin hip_pitch;
+    JointOrigin knee_pitch;
+    JointOrigin ankle;
+
+    double PHI1;
+    double PSI;
+
+    LegLimit limits;
+};
+
 class Leg {
 public:
     explicit Leg(Side side);
@@ -39,24 +62,21 @@ public:
     std::optional<LegAngles> IK(Eigen::Vector3d p_body, bool elbow_up) const;
 
     LegAngles get_joint_angles() const;
+
     void set_joint_angles(LegAngles q);
 
     bool within_limits(LegAngles q) const;
+
+    Eigen::Matrix3d jacobian();
 
 private:
     // 2-link planar solver (hip pitch + knee). nullopt if unreachable.
     std::optional<std::pair<double, double>> planar_ik(double x, double y, bool elbow_up) const;
 
-    Side side_;
-
-    // Leg geometry constants — set in the constructor (see leg.cpp).
-    // NOTE: FK joint origins and IK's body_2_hip are currently LEFT-leg only;
-    // branch them on side_ when adding the mirrored right leg (roadmap #2).
-    double L1_;
-    double L2_;
-    double PHI1_;
-    double PSI_;
-
-    LegLimit limits_;
+    double L1_;   // femur length (same both sides)
+    double L2_;   // tibia length (same both sides)
+    LegParams params_;
     LegAngles joint_angles {0, 0, 0};
 };
+
+}  // namespace legs

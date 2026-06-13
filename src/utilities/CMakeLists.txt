@@ -17,7 +17,7 @@ find_package(eigen3_cmake_module REQUIRED)
 find_package(Eigen3 REQUIRED)
 
 # --- shared kinematics library (pure C++ / Eigen, no rclcpp) ---
-add_library(kinematics src/transforms.cpp)
+add_library(kinematics src/transforms.cpp src/leg.cpp)
 target_include_directories(kinematics PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<INSTALL_INTERFACE:include>")
