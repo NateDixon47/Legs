@@ -1,0 +1,20 @@
+# --- colcon build artifacts (regenerated; never committed) ---
+build/
+install/
+log/
+
+# --- vendored third-party package (cloned separately, not part of this project) ---
+# Re-create with: git clone https://github.com/ros-controls/mujoco_ros2_control.git src/mujoco_ros2_control
+#                 then `rosdep install --from-paths src --ignore-src -r -y` and colcon build
+src/mujoco_ros2_control/
+
+# --- python ---
+__pycache__/
+*.pyc
+*.pyo
+
+# --- editor / OS ---
+.vscode/
+*.swp
+*~
+.DS_Store

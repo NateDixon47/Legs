@@ -1,0 +1,9 @@
+# Optional MuJoCo-side plugins. Minimal: just a heartbeat so we can confirm the
+# sim is stepping. (The demo also wires a camera plugin, but our model has no
+# camera site, so we leave it out.)
+/**:
+  ros__parameters:
+    mujoco_plugins:
+      heart_beat_plugin:
+        type: "mujoco_ros2_control_plugins/HeartbeatPublisherPlugin"
+        update_rate: 1.0

@@ -1,0 +1,416 @@
+<?xml version="1.0"?>
+<robot name="bipedal_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="headless" default="false"/>
+  <!-- Define materials for visualization -->
+  <material name="blue">
+    <color rgba="0.0 0.0 0.8 1.0"/>
+  </material>
+  <material name="red">
+    <color rgba="0.8 0.0 0.0 1.0"/>
+  </material>
+  <material name="green">
+    <color rgba="0.0 0.8 0.0 1.0"/>
+  </material>
+  <material name="gray">
+    <color rgba="0.1 0.1 0.1 1.0"/>
+  </material>
+  <material name="black">
+    <color rgba="0.1 0.1 0.1 1.0"/>
+  </material>
+
+  <!-- Add base_link for proper grounding -->
+  <link name="base_link"/>
+  
+  <!-- Fixed joint to connect base_link to body -->
+  <joint name="base_to_body" type="fixed">
+    <parent link="base_link"/>
+    <child link="body_link"/>
+    <origin xyz="0 0 0" rpy="1.5708 0 1.5708"/>
+  </joint>
+  
+  <!-- Main body/chassis -->
+  <link name="body_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/final_stl/body_v3_urdf.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="blue"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/final_stl/body_v3_urdf.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.00011 0.11488 -0.04551" rpy="0 0 0"/>
+      <mass value="7.13137"/>
+      <inertia
+        ixx="0.081061"
+        ixy="0.000089"
+        ixz="-0.000051"
+        iyy="0.106576"
+        iyz="-0.022384"
+        izz="0.129409"/>
+    </inertial>
+  </link>
+
+  <!-- Left hip connector -->
+  <link name="left_hip_connector_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/final_stl/hip.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/final_stl/hip.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.06026 0.02088 -0.08217" rpy="0 0 0"/>
+      <mass value="1.02839"/>
+      <inertia
+        ixx="0.001463"
+        ixy="6.011e-8"
+        ixz="0.000209"
+        iyy="0.001299"
+        iyz="1.663e-7"
+        izz="0.001050"/>
+    </inertial>
+  </link>
+
+  <!-- Joint connecting body to left hip connector -->
+  <joint name="left_hip_yaw" type="revolute">
+    <parent link="body_link"/>
+    <child link="left_hip_connector_link"/>
+    <origin xyz="0.125 0.02088 -0.0125" rpy="0 1.5708 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-1.57" upper="0.5" effort="60" velocity="20.42"/>
+    <dynamics damping="0.1" friction="0.01"/>
+  </joint>
+    
+  <!-- Left femur -->
+  <link name="left_femur_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/final_stl/femur_L_FINAL.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="green"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/final_stl/femur_L_FINAL.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.16258 -0.01110 -0.08518" rpy="0 0 0"/>
+      <mass value="1.45045"/>
+      <inertia
+        ixx="0.009425"
+        ixy="0.001485"
+        ixz="-0.000077"
+        iyy="0.002339"
+        iyz="-0.000524"
+        izz="0.009950"/>
+    </inertial>
+  </link>
+
+  <!-- Joint connecting left hip connector to left femur -->
+  <joint name="left_hip_pitch" type="revolute">
+    <parent link="left_hip_connector_link"/>
+    <child link="left_femur_link"/>
+    <origin xyz="0.074 0.0 0.0" rpy="1.5708 0 -1.5708"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.18" upper="2.0" effort="60" velocity="20.42"/>
+    <dynamics damping="0.1" friction="0.01"/>
+  </joint> 
+
+  <!-- Left tibia -->
+  <link name="left_tibia_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/final_stl/tibia_final.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="blue"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/final_stl/tibia_final.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.13050 -0.39091 -0.04963" rpy="0 0 0"/>
+      <mass value="0.28078"/>
+      <inertia
+        ixx="0.001865"
+        ixy="1.851e-8"
+        ixz="-1.09e-9"
+        iyy="5.548e-5"
+        iyz="-7.172e-5"
+        izz="0.001863"/>
+    </inertial>
+  </link>
+
+
+  <!-- Joint connecting left femur to left tibia (knee) -->
+  <joint name="left_knee" type="revolute">
+    <parent link="left_femur_link"/>
+    <child link="left_tibia_link"/>
+    <origin xyz="0.28154 0.0 0.05165" rpy="3.14159 0 0"/> 
+    <axis xyz="0 1 0"/>
+    <limit lower="0" upper="2.57" effort="60" velocity="20.42"/>
+    <dynamics damping="0.1" friction="0.01"/>
+  </joint>
+
+  <!-- Left foot -->
+  <link name="left_foot_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/final_stl/foot_v4.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/final_stl/foot_v4.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.13050 -0.54276 -0.04982" rpy="0 0 0"/>
+      <mass value="0.04259"/>
+      <inertia
+        ixx="9.887e-6"
+        ixy="0.0"
+        ixz="1.4e-10"
+        iyy="1.027e-5"
+        iyz="-5.383e-8"
+        izz="9.974e-6"/>
+    </inertial>
+  </link>
+
+
+    <!-- Joint connecting left tibia to left foot -->
+  <joint name="left_ankle" type="fixed">
+    <parent link="left_tibia_link"/>
+    <child link="left_foot_link"/>
+    <origin xyz="0.29957 0 0.01196" rpy="-1.5708 1.10916 0"/>
+  </joint>
+
+ 
+  <!-- Right hip connector -->
+  <link name="right_hip_connector_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/final_stl/hip.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/final_stl/hip.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.06026 0.02088 -0.08217" rpy="0 0 0"/>
+      <mass value="1.02839"/>
+      <inertia
+        ixx="0.001463"
+        ixy="6.011e-8"
+        ixz="-0.000209"
+        iyy="0.001299"
+        iyz="-1.663e-7"
+        izz="0.001050"/>
+    </inertial>
+  </link>
+
+  <!-- Joint connecting body to right hip connector -->
+  <joint name="right_hip_yaw" type="revolute">
+    <parent link="body_link"/>
+    <child link="right_hip_connector_link"/>
+    <origin xyz="-0.125 0.02088 -0.0125" rpy="3.14159 1.5708 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.5" upper="1.57" effort="60" velocity="20.42"/>
+    <dynamics damping="0.1" friction="0.01"/>
+  </joint>
+
+  <!-- Right femur -->
+  <link name="right_femur_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/final_stl/femur_R_FINAL.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/final_stl/femur_R_FINAL.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.16258 -0.01114 -0.08464" rpy="0 0 0"/>
+      <mass value="1.45045"/>
+      <inertia
+        ixx="0.009419"
+        ixy="-0.001484"
+        ixz="0.000065"
+        iyy="0.002336"
+        iyz="-0.000500"
+        izz="0.009947"/>
+    </inertial>
+  </link>
+
+  <!-- Joint connecting right hip connector to right femur -->
+  <joint name="right_hip_pitch" type="revolute">
+    <parent link="right_hip_connector_link"/>
+    <child link="right_femur_link"/>
+    <origin xyz="0.074 0.0 0.0" rpy="1.5708 0 1.5708"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.18" upper="2" effort="60" velocity="20.42"/>
+    <dynamics damping="0.1" friction="0.01"/>
+  </joint>
+
+
+  <!-- Right tibia -->
+  <link name="right_tibia_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/final_stl/tibia_final.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/final_stl/tibia_final.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.13050 -0.39091 -0.04963" rpy="0 0 0"/>
+      <mass value="0.28078"/>
+      <inertia
+        ixx="0.001865"
+        ixy="1.851e-8"
+        ixz="-1.09e-9"
+        iyy="5.548e-5"
+        iyz="-7.172e-5"
+        izz="0.001863"/>
+    </inertial>
+  </link>
+
+
+
+  <!-- Joint connecting right femur to right tibia (knee) -->
+  <joint name="right_knee" type="revolute">
+    <parent link="right_femur_link"/>
+    <child link="right_tibia_link"/>
+    <origin xyz="0.28154 0 -0.05165" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0" upper="2.57" effort="60" velocity="20.42"/>
+    <dynamics damping="0.1" friction="0.01"/>
+  </joint>
+
+  <!-- Right foot -->
+  <link name="right_foot_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/final_stl/foot_v4.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/final_stl/foot_v4.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.13050 -0.54276 -0.04982" rpy="0 0 0"/>
+      <mass value="0.04259"/>
+      <inertia
+        ixx="9.887e-6"
+        ixy="0.0"
+        ixz="1.4e-10"
+        iyy="1.027e-5"
+        iyz="-5.383e-8"
+        izz="9.974e-6"/>
+    </inertial>
+  </link>
+
+
+  <!-- Joint connecting right tibia to right foot (ankle) -->
+  <joint name="right_ankle" type="fixed">
+    <parent link="right_tibia_link"/>
+    <child link="right_foot_link"/>
+    <origin xyz="0.29977 0.0 0.01196" rpy="-1.5708 1.10916 0"/>
+  </joint>
+
+
+
+  <!-- Gazebo-specific properties for better physics simulation -->
+  <gazebo reference="body_link">
+    <material>Gazebo/Gray</material>
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+  </gazebo>
+
+  <gazebo reference="left_foot_link">
+    <material>Gazebo/Gray</material>
+    <mu1>0.8</mu1>
+    <mu2>0.8</mu2>
+    <kp>1000000.0</kp>
+    <kd>100.0</kd>
+  </gazebo>
+
+  <gazebo reference="right_foot_link">
+    <material>Gazebo/Gray</material>
+    <mu1>0.8</mu1>
+    <mu2>0.8</mu2>
+    <kp>1000000.0</kp>
+    <kd>100.0</kd>
+  </gazebo>
+
+  <!-- ros2_control hardware: MuJoCo via mujoco_ros2_control -->
+  <ros2_control name="MujocoSystem" type="system">
+    <hardware>
+      <plugin>mujoco_ros2_control/MujocoSystemInterface</plugin>
+      <param name="mujoco_model">$(find legs_description)/mujoco/scene.xml</param>
+      <param name="headless">$(arg headless)</param>
+    </hardware>
+    <joint name="left_hip_yaw">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="left_hip_pitch">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="left_knee">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="right_hip_yaw">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="right_hip_pitch">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="right_knee">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+  </ros2_control>
+
+</robot> 

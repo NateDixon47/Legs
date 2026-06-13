@@ -1,0 +1,22 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 100
+
+joint_state_broadcaster:
+  ros__parameters:
+    type: joint_state_broadcaster/JointStateBroadcaster
+
+# Single position controller over all 6 leg joints. The ik_node will publish a
+# 6-element Float64MultiArray (left leg driven, right held) to
+# /position_controller/commands.
+position_controller:
+  ros__parameters:
+    type: forward_command_controller/ForwardCommandController
+    interface_name: position
+    joints:
+      - left_hip_yaw
+      - left_hip_pitch
+      - left_knee
+      - right_hip_yaw
+      - right_hip_pitch
+      - right_knee
