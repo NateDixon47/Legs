@@ -50,6 +50,7 @@ struct LegParams {
     LegLimit limits;
 };
 
+
 class Leg {
 public:
     explicit Leg(Side side);

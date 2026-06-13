@@ -69,7 +69,7 @@ int main(){
     auto [hip_pitch, knee_pitch] = planar_ik(x, y, true);
 
     // std::cout << hip_pitch << " " << knee_pitch << std::endl;
-    Eigen::Vector3d p(0.235, -0.400, -0.097);
+    Eigen::Vector3d p(0.125, -0.56, -0.047);
     LegAngles angles = full_ik(p, false);
     std::cout << angles.hip_yaw << " " << angles.hip_pitch << " " << angles.knee_pitch << std::endl;
     return 0;

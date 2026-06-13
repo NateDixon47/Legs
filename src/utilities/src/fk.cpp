@@ -62,8 +62,8 @@ Eigen::Vector3d FK(double q_yaw, double q_pitch, double q_knee){
 
 int main(){
     double hip_yaw = 0.0;
-    double hip_pitch = 1.0;
-    double knee_pitch = 1.25;
+    double hip_pitch = 0.0;
+    double knee_pitch = 0.25;
     Eigen::Vector3d q = FK(hip_yaw, hip_pitch, knee_pitch);
     std::cout << q << std::endl;
     return 0;
