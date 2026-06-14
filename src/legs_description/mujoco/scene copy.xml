@@ -18,8 +18,5 @@
 
   <worldbody>
     <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
-    <!-- Ground plane at z=0 (infinite). contype/conaffinity=1 so the feet collide with it. -->
-    <geom name="floor" type="plane" size="0 0 0.05" material="groundplane"
-          contype="1" conaffinity="1"/>
   </worldbody>
 </mujoco>

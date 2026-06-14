@@ -20,14 +20,7 @@
   </asset>
 
   <worldbody>
-    <!-- Free-floating base (torso). The freejoint gives it 6 DOF so it falls/moves
-         under gravity. Spawn height ~0.55 m so the feet start near a future z=0 floor
-         (tune when the ground plane is added). Inertial = body_link from the URDF. -->
-    <body name="base" pos="0 0 0.55">
-      <freejoint name="base_free"/>
-      <inertial pos="-0.00011 0.11488 -0.04551" mass="7.13137"
-                fullinertia="0.081061 0.106576 0.129409 0.000089 -0.000051 -0.022384"/>
-      <geom pos="0 0 0" quat="0.499998 0.5 0.500002 0.5" type="mesh" rgba="0 0 0.8 1" mesh="body_v3_urdf"/>
+    <geom pos="0 0 0" quat="0.499998 0.5 0.500002 0.5" type="mesh" rgba="0 0 0.8 1" mesh="body_v3_urdf"/>
     <body name="left_hip_connector_link" pos="-0.0125004 0.125 0.02088" quat="-3.89602e-06 -1.29867e-06 0.707107 0.707107">
       <inertial pos="0.06026 0.02088 -0.08217" quat="0.980491 0.00014315 -0.196565 0.000271321" mass="1.02839" diaginertia="0.00155031 0.001299 0.000962692"/>
       <joint name="left_hip_yaw" pos="0 0 0" axis="1 0 0" range="-1.57 0.5" actuatorfrcrange="-60 60" damping="0.1" frictionloss="0.01"/>
@@ -40,7 +33,7 @@
           <inertial pos="0.132073 -0.372053 -0.0565048" quat="0.732657 0.672872 -0.0779594 0.0661738" mass="0.32337" diaginertia="0.00273931 0.0026494 0.000153024"/>
           <joint name="left_knee" pos="0 0 0" axis="0 1 0" range="0 2.57" actuatorfrcrange="-60 60" damping="0.1" frictionloss="0.01"/>
           <geom type="mesh" rgba="0 0 0.8 1" mesh="tibia_final"/>
-          <geom pos="0.29957 0 0.01196" quat="0.601126 -0.601128 0.372352 0.372353" type="mesh" rgba="0.1 0.1 0.1 1" mesh="foot_v4" contype="1" conaffinity="1"/>
+          <geom pos="0.29957 0 0.01196" quat="0.601126 -0.601128 0.372352 0.372353" type="mesh" rgba="0.1 0.1 0.1 1" mesh="foot_v4"/>
         </body>
       </body>
     </body>
@@ -56,10 +49,9 @@
           <inertial pos="-0.128927 -0.372027 -0.0565094" quat="0.732716 0.672819 -0.0779088 0.0661203" mass="0.32337" diaginertia="0.00274153 0.00265157 0.000153075"/>
           <joint name="right_knee" pos="0 0 0" axis="0 1 0" range="0 2.57" actuatorfrcrange="-60 60" damping="0.1" frictionloss="0.01"/>
           <geom type="mesh" rgba="0.1 0.1 0.1 1" mesh="tibia_final"/>
-          <geom pos="0.29977 0 0.01196" quat="0.601126 -0.601128 0.372352 0.372353" type="mesh" rgba="0.1 0.1 0.1 1" mesh="foot_v4" contype="1" conaffinity="1"/>
+          <geom pos="0.29977 0 0.01196" quat="0.601126 -0.601128 0.372352 0.372353" type="mesh" rgba="0.1 0.1 0.1 1" mesh="foot_v4"/>
         </body>
       </body>
-    </body>
     </body>
   </worldbody>
 
