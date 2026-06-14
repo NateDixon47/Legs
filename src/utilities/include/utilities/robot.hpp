@@ -25,10 +25,9 @@ class Robot {
         // Takes a desired foot position for each leg, runs both leg IK's and
         // assembles the output into a single ordered command vector.
         std::optional<Eigen::VectorXd> generate_command(Eigen::Vector3d left_foot, Eigen::Vector3d right_foot);
-
-    private:
         legs::Leg left_leg_;
         legs::Leg right_leg_;
+    private:
         std::array<std::string, 6> joint_names_;
 };
 
