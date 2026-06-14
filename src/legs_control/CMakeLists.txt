@@ -17,7 +17,8 @@ add_executable(ik_node src/ik_node.cpp)
 ament_target_dependencies(ik_node
   rclcpp
   utilities
-  std_msgs)
+  std_msgs
+  sensor_msgs)
 
 install(TARGETS ik_node
   DESTINATION lib/${PROJECT_NAME})

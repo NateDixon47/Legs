@@ -46,6 +46,8 @@ struct LegParams {
 
     double PHI1;
     double PSI;
+    double beta_sign;   // +1/-1: sign of BETA in the planar hip solve (flips for the mirrored leg)
+    double L2;          // tibia length (right ankle differs slightly from left)
 
     LegLimit limits;
 };
@@ -74,8 +76,7 @@ private:
     // 2-link planar solver (hip pitch + knee). nullopt if unreachable.
     std::optional<std::pair<double, double>> planar_ik(double x, double y, bool elbow_up) const;
 
-    double L1_;   // femur length (same both sides)
-    double L2_;   // tibia length (same both sides)
+    double L1_;   // femur length (same both sides; L2 is per-side in LegParams)
     LegParams params_;
     LegAngles joint_angles {0, 0, 0};
 };
