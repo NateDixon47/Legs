@@ -8,7 +8,8 @@
 #include <Eigen/Dense>
 #include <mujoco/mujoco.h>
 
-#include "utilities/leg.hpp"  // legs::Side
+#include "utilities/leg.hpp"          // legs::Side
+#include "utilities/robot_state.hpp"  // robot::RobotState
 
 namespace dynamics {
 
@@ -48,6 +49,10 @@ class RobotModel {
     // RobotState overload would reuse.
     void setState(const Eigen::Isometry3d& base_pose,
                   const Eigen::VectorXd& joint_angles);
+
+    // Set the full state (base pose + twist, joint positions + velocities) from a
+    // RobotState snapshot. This is what the estimator/controllers will call.
+    void setState(const robot::RobotState& state);
 
     Eigen::MatrixXd massMatrix() const;     // M(q)            nv x nv
     Eigen::VectorXd biasForces() const;     // C(q,q̇)q̇ + g(q)  nv

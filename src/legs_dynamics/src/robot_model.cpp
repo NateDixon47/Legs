@@ -84,6 +84,30 @@ void RobotModel::setState(const Eigen::Isometry3d& base_pose,
     setState(qpos, qvel);
 }
 
+void RobotModel::setState(const robot::RobotState& state) {
+    Eigen::VectorXd qpos = Eigen::VectorXd::Zero(model_->nq);
+    Eigen::VectorXd qvel = Eigen::VectorXd::Zero(model_->nv);
+
+    qpos.segment<3>(0) = state.base_pose.translation();
+    Eigen::Quaterniond rot(state.base_pose.rotation());
+    qpos[3] = rot.w();
+    qpos[4] = rot.x();
+    qpos[5] = rot.y();
+    qpos[6] = rot.z();
+
+    qvel.segment<3>(0) = state.base_lin_vel;
+    qvel.segment<3>(3) = state.base_ang_vel;
+
+    for (std::size_t i = 0; i < joint_qposadr_.size(); i++) {
+        qpos[joint_qposadr_[i]] = state.q[static_cast<int>(i)];
+        qvel[joint_dofadr_[i]] = state.q_dot[static_cast<int>(i)];
+    }
+
+    setState(qpos, qvel);
+}
+
+
+
 Eigen::MatrixXd RobotModel::massMatrix() const {
     const int nv = model_->nv;
     Eigen::MatrixXd M(nv, nv);
