@@ -9,8 +9,12 @@ endif()
 find_package(ament_cmake REQUIRED)
 
 # Install resources so $(find legs_description)/... resolves at runtime.
-install(DIRECTORY urdf mujoco meshes config launch
+install(DIRECTORY urdf mujoco meshes config launch rviz
   DESTINATION share/${PROJECT_NAME})
+
+# Python helper nodes, installed where `ros2 run` / launch executables are found.
+install(PROGRAMS scripts/odom_to_tf.py
+  DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

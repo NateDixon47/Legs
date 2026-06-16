@@ -32,13 +32,13 @@
   <link name="body_link">
     <visual>
       <geometry>
-        <mesh filename="meshes/final_stl/body_v3_urdf.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/body_v3_urdf.STL" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="blue"/>
     </visual>
     <collision>
       <geometry>
-        <mesh filename="meshes/final_stl/body_v3_urdf.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/body_v3_urdf.STL" scale="0.001 0.001 0.001"/>
       </geometry>
     </collision>
     <inertial>
@@ -58,13 +58,13 @@
   <link name="left_hip_connector_link">
     <visual>
       <geometry>
-        <mesh filename="meshes/final_stl/hip.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/hip.STL" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="gray"/>
     </visual>
     <collision>
       <geometry>
-        <mesh filename="meshes/final_stl/hip.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/hip.STL" scale="0.001 0.001 0.001"/>
       </geometry>
     </collision>
     <inertial>
@@ -94,13 +94,13 @@
   <link name="left_femur_link">
     <visual>
       <geometry>
-        <mesh filename="meshes/final_stl/femur_L_FINAL.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/femur_L_FINAL.STL" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="green"/>
     </visual>
     <collision>
       <geometry>
-        <mesh filename="meshes/final_stl/femur_L_FINAL.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/femur_L_FINAL.STL" scale="0.001 0.001 0.001"/>
       </geometry>
     </collision>
     <inertial>
@@ -130,13 +130,13 @@
   <link name="left_tibia_link">
     <visual>
       <geometry>
-        <mesh filename="meshes/final_stl/tibia_final.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/tibia_final.STL" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="blue"/>
     </visual>
     <collision>
       <geometry>
-        <mesh filename="meshes/final_stl/tibia_final.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/tibia_final.STL" scale="0.001 0.001 0.001"/>
       </geometry>
     </collision>
     <inertial>
@@ -167,13 +167,13 @@
   <link name="left_foot_link">
     <visual>
       <geometry>
-        <mesh filename="meshes/final_stl/foot_v4.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/foot_v4.STL" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="gray"/>
     </visual>
     <collision>
       <geometry>
-        <mesh filename="meshes/final_stl/foot_v4.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/foot_v4.STL" scale="0.001 0.001 0.001"/>
       </geometry>
     </collision>
     <inertial>
@@ -202,13 +202,13 @@
   <link name="right_hip_connector_link">
     <visual>
       <geometry>
-        <mesh filename="meshes/final_stl/hip.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/hip.STL" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="gray"/>
     </visual>
     <collision>
       <geometry>
-        <mesh filename="meshes/final_stl/hip.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/hip.STL" scale="0.001 0.001 0.001"/>
       </geometry>
     </collision>
     <inertial>
@@ -238,13 +238,13 @@
   <link name="right_femur_link">
     <visual>
       <geometry>
-        <mesh filename="meshes/final_stl/femur_R_FINAL.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/femur_R_FINAL.STL" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="gray"/>
     </visual>
     <collision>
       <geometry>
-        <mesh filename="meshes/final_stl/femur_R_FINAL.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/femur_R_FINAL.STL" scale="0.001 0.001 0.001"/>
       </geometry>
     </collision>
     <inertial>
@@ -275,13 +275,13 @@
   <link name="right_tibia_link">
     <visual>
       <geometry>
-        <mesh filename="meshes/final_stl/tibia_final.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/tibia_final.STL" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="gray"/>
     </visual>
     <collision>
       <geometry>
-        <mesh filename="meshes/final_stl/tibia_final.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/tibia_final.STL" scale="0.001 0.001 0.001"/>
       </geometry>
     </collision>
     <inertial>
@@ -313,13 +313,13 @@
   <link name="right_foot_link">
     <visual>
       <geometry>
-        <mesh filename="meshes/final_stl/foot_v4.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/foot_v4.STL" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="gray"/>
     </visual>
     <collision>
       <geometry>
-        <mesh filename="meshes/final_stl/foot_v4.STL" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://legs_description/meshes/final_stl/foot_v4.STL" scale="0.001 0.001 0.001"/>
       </geometry>
     </collision>
     <inertial>
@@ -374,6 +374,9 @@
       <plugin>mujoco_ros2_control/MujocoSystemInterface</plugin>
       <param name="mujoco_model">$(find legs_description)/mujoco/scene.xml</param>
       <param name="headless">$(arg headless)</param>
+      <!-- Publish the floating-base pose (free joint 'base_free') as nav_msgs/Odometry
+           on /simulator/floating_base_state, so RViz/estimator can get the base pose. -->
+      <param name="odom_free_joint_name">base_free</param>
     </hardware>
     <joint name="left_hip_yaw">
       <command_interface name="position"/>

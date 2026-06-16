@@ -45,6 +45,7 @@ def launch_setup(context, *args, **kwargs):
 
     controllers = PathJoinSubstitution([pkg, "config", "controllers.yaml"])
     mujoco_plugins = PathJoinSubstitution([pkg, "config", "mujoco_ros2_control_plugins.yaml"])
+    rviz_config = PathJoinSubstitution([pkg, "rviz", "bipedal.rviz"])
 
     nodes = [
         Node(
@@ -88,6 +89,30 @@ def launch_setup(context, *args, **kwargs):
         )
     )
 
+    # RViz (optional). Shows the robot from /robot_description; the legs animate
+    # from /joint_states and the base from the odom->base_link TF below, so the
+    # whole robot moves/falls in RViz exactly like MuJoCo.
+    if LaunchConfiguration("rviz").perform(context) == "true":
+        nodes.append(
+            # Convert MuJoCo's floating-base odometry into the odom->base_link TF
+            # (applying the 120-deg base-frame rotation) so RViz can place the base.
+            Node(
+                package="legs_description",
+                executable="odom_to_tf.py",
+                parameters=[{"use_sim_time": True}],
+                output="both",
+            )
+        )
+        nodes.append(
+            Node(
+                package="rviz2",
+                executable="rviz2",
+                arguments=["-d", rviz_config.perform(context)],
+                parameters=[{"use_sim_time": True}],
+                output="both",
+            )
+        )
+
     return nodes
 
 
@@ -98,6 +123,11 @@ def generate_launch_description():
                 "headless",
                 default_value="false",
                 description="Run MuJoCo without the Simulate window",
+            ),
+            DeclareLaunchArgument(
+                "rviz",
+                default_value="false",
+                description="Also launch RViz to visualize the robot",
             ),
             OpaqueFunction(function=launch_setup),
         ]
