@@ -6,9 +6,9 @@ joint_state_broadcaster:
   ros__parameters:
     type: joint_state_broadcaster/JointStateBroadcaster
 
-# Single position controller over all 6 leg joints. The ik_node will publish a
-# 6-element Float64MultiArray (left leg driven, right held) to
-# /position_controller/commands.
+# Single position controller over all 6 leg joints. Publish a 6-element
+# Float64MultiArray of joint angles [rad] to /position_controller/commands.
+# MuJoCo's position actuators servo each joint to the commanded angle.
 position_controller:
   ros__parameters:
     type: forward_command_controller/ForwardCommandController

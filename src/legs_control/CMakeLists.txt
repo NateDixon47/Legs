@@ -14,7 +14,17 @@ find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 
 add_executable(ik_node src/ik_node.cpp)
+add_executable(step src/step.cpp)
+
 ament_target_dependencies(ik_node
+  rclcpp
+  utilities
+  std_msgs
+  sensor_msgs)
+
+# Lets #include "legs_control/..." headers resolve from this package's include/.
+target_include_directories(step PRIVATE include)
+ament_target_dependencies(step
   rclcpp
   utilities
   std_msgs
@@ -22,6 +32,12 @@ ament_target_dependencies(ik_node
 
 install(TARGETS ik_node
   DESTINATION lib/${PROJECT_NAME})
+
+install(TARGETS step
+  DESTINATION lib/${PROJECT_NAME})
+
+
+
 
 
 

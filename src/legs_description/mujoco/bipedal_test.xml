@@ -58,11 +58,11 @@
   <!-- Position actuators: one per joint, names match the ros2_control joints.
        kp is a starting guess for a light leg; tune later. ctrlrange = joint range. -->
   <actuator>
-    <position name="left_hip_yaw"    joint="left_hip_yaw"    kp="150" dampratio="1.0" ctrlrange="-1.57 0.5"/>
-    <position name="left_hip_pitch"  joint="left_hip_pitch"  kp="150" dampratio="1.0" ctrlrange="-0.18 2.0"/>
-    <position name="left_knee"       joint="left_knee"       kp="150" dampratio="1.0" ctrlrange="0 2.57"/>
-    <position name="right_hip_yaw"   joint="right_hip_yaw"   kp="150" dampratio="1.0" ctrlrange="-0.5 1.57"/>
-    <position name="right_hip_pitch" joint="right_hip_pitch" kp="150" dampratio="1.0" ctrlrange="-2.0 0.18"/>
-    <position name="right_knee"      joint="right_knee"      kp="150" dampratio="1.0" ctrlrange="0 2.57"/>
+    <motor name="left_hip_yaw"    joint="left_hip_yaw"    ctrlrange="-60 60"/>
+    <motor name="left_hip_pitch"  joint="left_hip_pitch"  ctrlrange="-60 60"/>
+    <motor name="left_knee"       joint="left_knee"       ctrlrange="-60 60"/>
+    <motor name="right_hip_yaw"   joint="right_hip_yaw"   ctrlrange="-60 60"/>
+    <motor name="right_hip_pitch" joint="right_hip_pitch" ctrlrange="-60 60"/>
+    <motor name="right_knee"      joint="right_knee"      ctrlrange="-60 60"/>
   </actuator>
 </mujoco>

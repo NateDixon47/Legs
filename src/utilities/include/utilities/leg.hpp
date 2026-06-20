@@ -72,6 +72,7 @@ public:
 
     Eigen::Matrix3d jacobian();
 
+
 private:
     // 2-link planar solver (hip pitch + knee). nullopt if unreachable.
     std::optional<std::pair<double, double>> planar_ik(double x, double y, bool elbow_up) const;

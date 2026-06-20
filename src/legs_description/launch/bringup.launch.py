@@ -5,7 +5,7 @@
   mujoco ros2_control_node (loads scene.xml + robot_description, steps MuJoCo)
   spawners: joint_state_broadcaster, position_controller
 
-Control the legs:
+Control the legs (joint angles in rad):
   ros2 topic pub /position_controller/commands std_msgs/msg/Float64MultiArray \
     "data: [0.0, 0.5, 1.0, 0.0, 0.5, 1.0]"
 """
