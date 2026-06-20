@@ -1,10 +1,11 @@
 #include <chrono>
 #include <functional>
-#include <string>
 #include <memory>
 #include <optional>
 #include <algorithm>
 #include <vector>
+#include <array>
+#include <string>
 #include <stdexcept>
 
 #include "rclcpp/rclcpp.hpp"
@@ -13,139 +14,122 @@
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "legs_control/trajectory_generator.hpp"
-#include "legs_control/pd_controller.hpp"
 
-/*
-
-
-*/
 using namespace std::chrono_literals;
 
 class Step_Node : public rclcpp::Node {
     public:
         Step_Node() : Node("step_node") {
-            publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/position_controller/commands", 10);
-            p_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>("/foot_pos", 10, std::bind(&Step_Node::get_foot_pos, this, std::placeholders::_1));
-            js_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&Step_Node::get_state, this, std::placeholders::_1));
+            publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(
+                "/position_controller/commands", 10);
+            p_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+                "/foot_pos", 10, std::bind(&Step_Node::get_foot_pos, this, std::placeholders::_1));
+            js_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>(
+                "/joint_states", 10, std::bind(&Step_Node::get_state, this, std::placeholders::_1));
             timer_ = this->create_wall_timer(10ms, std::bind(&Step_Node::timer_callback, this));
 
-            // Precompute the home joint angles once (held whenever no target is active).
-            std::optional<legs::LegAngles> home = left_leg_.IK(home_foot_, false);
-            if (!home) {
+            // Validate both home foot positions are reachable at startup.
+            if (!robot_.generate_command(home_l_foot_, home_r_foot_)) {
                 throw std::runtime_error("home foot position is unreachable");
             }
-            q_home_ = Eigen::Vector3d(home->hip_yaw, home->hip_pitch, home->knee_pitch);
         }
 
-
     private:
-
+        // Target: 6-element [lx,ly,lz, rx,ry,rz] in the base frame. Builds a Cartesian
+        // swing trajectory for each foot; IK happens per-tick in timer_callback.
         void get_foot_pos(const std_msgs::msg::Float64MultiArray &msg) {
             if (!have_state_) {
                 RCLCPP_WARN(this->get_logger(), "Did not receive joint states yet.");
-                return;  // need measured joints before we can FK the start point
+                return;
             }
-            foot_pos_ = {msg.data[0], msg.data[1], msg.data[2]};
+            Eigen::Vector3d target_l(msg.data[0], msg.data[1], msg.data[2]);
+            Eigen::Vector3d target_r(msg.data[3], msg.data[4], msg.data[5]);
 
-            // qi = current foot position (FK of the measured joints), in the base frame.
-            // vi = vf = 0: the foot starts and ends the swing at rest.
-            Eigen::Vector3d qi = left_leg_.FK(q_[0], q_[1], q_[2]);
+            // qi = current foot position (FK of measured joints) for each leg.
+            Eigen::Vector3d qi_l = robot_.left_leg_.FK(q_[0], q_[1], q_[2]);
+            Eigen::Vector3d qi_r = robot_.right_leg_.FK(q_[3], q_[4], q_[5]);
             Eigen::Vector3d v0 = Eigen::Vector3d::Zero();
-            Eigen::Vector3d vf = Eigen::Vector3d::Zero();
 
-            std::vector<Eigen::Vector3d> foot_traj =
-                generate_trajectory(qi, foot_pos_, v0, vf, 0.5, dt_traj_);
+            // Store Cartesian foot trajectories; generate_command IKs them each tick.
+            foot_traj_l_ = generate_trajectory(qi_l, target_l, v0, v0, T_step_, dt_traj_);
+            foot_traj_r_ = generate_trajectory(qi_r, target_r, v0, v0, T_step_, dt_traj_);
 
-            // IK every point into a temporary, so a single unreachable point doesn't
-            // leave q_traj_ half-updated. Commit only if the whole swing is reachable.
-            std::vector<Eigen::Vector3d> q_traj;
-            q_traj.reserve(foot_traj.size());
-            for (const Eigen::Vector3d &p : foot_traj) {
-                std::optional<legs::LegAngles> angles = left_leg_.IK(p, false);
-                if (!angles) {
-                    RCLCPP_WARN(this->get_logger(),
-                                "IK unreachable along trajectory; ignoring this target");
-                    return;  // keep the previous q_traj_
-                }
-                // LegAngles -> Vector3d in the same (hip_yaw, hip_pitch, knee) order as q_.
-                q_traj.push_back(Eigen::Vector3d(
-                    angles->hip_yaw, angles->hip_pitch, angles->knee_pitch));
-            }
-
-            q_traj_ = std::move(q_traj);              // commit the new joint-space trajectory
-            t_step_start_ = this->now().seconds();    // anchor the timer's playback to now
+            t_step_start_ = this->now().seconds();
             have_foot_pos_ = true;
         }
 
         void get_state(const sensor_msgs::msg::JointState::SharedPtr msg) {
-            static const std::array<std::string, 3> joint_names = {
-                "left_hip_yaw", "left_hip_pitch", "left_knee"
-            };
+            // All 6 joints, mapped by name into joint_names_ order (left 3, right 3).
+            static const std::array<std::string, 6> joint_names = {
+                "left_hip_yaw", "left_hip_pitch", "left_knee",
+                "right_hip_yaw", "right_hip_pitch", "right_knee"};
             for (size_t i = 0; i < joint_names.size(); ++i) {
                 auto it = std::find(msg->name.begin(), msg->name.end(), joint_names[i]);
-                if (it == msg->name.end()){
-                    return;
+                if (it == msg->name.end()) {
+                    return;  // a joint is missing this message; try again next one
                 }
-            
-            size_t idx = std::distance(msg->name.begin(), it);
-            q_[i] = msg->position[idx];
-            q_dot_[i] = msg->velocity[idx];
+                size_t idx = std::distance(msg->name.begin(), it);
+                q_[static_cast<int>(i)] = msg->position[idx];
             }
-
             have_state_ = true;
-
         }
 
         void timer_callback() {
-            if (!have_state_) { return; }   // no measured joints yet
+            if (!have_state_) { return; }
 
-            // Desired LEFT-leg joint angles: home pose until a target is commanded,
-            // then the IK trajectory sampled by elapsed time.
-            Eigen::Vector3d q_des_left;
+            // Current desired foot positions: home until a target, then the trajectory
+            // sampled by elapsed time (clamped at the end).
+            Eigen::Vector3d foot_l, foot_r;
             if (!have_foot_pos_) {
-                q_des_left = q_home_;
+                foot_l = home_l_foot_;
+                foot_r = home_r_foot_;
             } else {
-                double time = this->now().seconds() - t_step_start_;
-                int k = static_cast<int>(std::floor(time / dt_traj_));
-                k = std::min(k, static_cast<int>(q_traj_.size()) - 1);
-                q_des_left = q_traj_[k];
+                double elapsed = this->now().seconds() - t_step_start_;
+                int k = static_cast<int>(std::floor(elapsed / dt_traj_));
+                k = std::min(k, static_cast<int>(foot_traj_l_.size()) - 1);
+                foot_l = foot_traj_l_[k];
+                foot_r = foot_traj_r_[k];
             }
 
-            // Position control: publish joint ANGLES. The MuJoCo servo holds them.
-            // Right leg held at a fixed pose (zeros) so it doesn't move.
-            publish_positions(q_des_left, Eigen::Vector3d::Zero());
+            // Both legs' IK in one call -> 6 joint angles (left 3, right 3).
+            std::optional<Eigen::VectorXd> q_des = robot_.generate_command(foot_l, foot_r);
+            if (!q_des) {
+                RCLCPP_WARN(this->get_logger(), "generate_command unreachable; holding last");
+                return;
+            }
+            publish_positions(*q_des);
         }
 
-        // Build the 6-joint POSITION command (left 3 + right 3, in joint_names_ order).
-        void publish_positions(const Eigen::Vector3d &q_left, const Eigen::Vector3d &q_right) {
+        void publish_positions(const Eigen::VectorXd &q) {
             std_msgs::msg::Float64MultiArray cmd;
-            cmd.data = {q_left[0], q_left[1], q_left[2],
-                        q_right[0], q_right[1], q_right[2]};
+            cmd.data = {q[0], q[1], q[2], q[3], q[4], q[5]};
             publisher_->publish(cmd);
         }
 
         rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr publisher_;
         rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr p_subscriber_;
         rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr js_subscriber_;
-        Eigen::Vector3d Kp_{150.0, 150.0, 150.0};
-        Eigen::Vector3d Kd_{8.0, 8.0, 8.0};
-        PD_Controller pd_{Kp_, Kd_};
-        Eigen::Vector3d q_{0.0, 0.0, 0.0};
-        Eigen::Vector3d q_dot_{0.0, 0.0, 0.0};
-        Eigen::Vector3d foot_pos_{0.0, 0.0, 0.0};
-        Eigen::Vector3d home_foot_{0.125, -0.475, -0.1};   // home/idle foot position (base frame)
-        Eigen::Vector3d q_home_{0.0, 0.0, 0.0};       // home joint angles (IK of home_foot_)
+        rclcpp::TimerBase::SharedPtr timer_;
+
+        robot::Robot robot_;
+
+        // Measured joint angles, all 6 (left_hip_yaw, left_hip_pitch, left_knee, right_...).
+        Eigen::Matrix<double, 6, 1> q_ = Eigen::Matrix<double, 6, 1>::Zero();
+
+        // Home/idle foot positions (base frame), one per leg.
+        Eigen::Vector3d home_l_foot_{0.125, -0.475, -0.1};
+        Eigen::Vector3d home_r_foot_{-0.125, -0.475, -0.1};
+
+        // Cartesian swing trajectories (foot positions), one per leg.
+        std::vector<Eigen::Vector3d> foot_traj_l_;
+        std::vector<Eigen::Vector3d> foot_traj_r_;
+
         bool have_state_ = false;
         bool have_foot_pos_ = false;
-        rclcpp::TimerBase::SharedPtr timer_;
-        legs::Leg left_leg_{legs::Side::Left};
-        std::vector<Eigen::Vector3d> q_traj_;
         double t_step_start_ = 0.0;
-        double dt_traj_ = 0.01;  // = control period (100 Hz) → one trajectory point per tick
-
+        double dt_traj_ = 0.01;   // = control period (100 Hz)
+        double T_step_ = 0.5;     // swing duration
 };
-
-
 
 int main(int argc, char *argv[]) {
     rclcpp::init(argc, argv);
