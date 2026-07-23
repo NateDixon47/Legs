@@ -41,7 +41,8 @@ inline std::vector<Eigen::Vector3d> generate_trajectory(
     // Velocity at the apex via point: the secant across the whole step
     // (Catmull-Rom). Smooth horizontal motion, ~zero vertical at the top on
     // level ground. Set to Zero() to momentarily stop the foot at the apex.
-    Eigen::Vector3d v_apex = (qf - qi) / T;
+    // Eigen::Vector3d v_apex = (qf - qi) / T;
+    Eigen::Vector3d v_apex = Eigen::Vector3d::Zero();
 
     double Th = T / 2.0;                              // each segment is half the step
     int n = static_cast<int>(std::round(Th / dt));   // samples per segment

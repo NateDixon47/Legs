@@ -9,10 +9,8 @@
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 
-/*
-This initial IK node will take in a foot position for the left leg in the body frame 
-and publish the joint angles to move the foot to that position.
-*/
+
+
 class IK_Node : public rclcpp::Node{
     public:
         IK_Node() : Node("ik_node"), robot_() {
@@ -24,7 +22,6 @@ class IK_Node : public rclcpp::Node{
     private:
         robot::Robot robot_;
 
-
         void ik_callback(const std_msgs::msg::Float64MultiArray &msg) {
             if (msg.data.size() < 6){
                 RCLCPP_WARN(this->get_logger(), "foot_pos needs 6 values: [left x,y,z, right x,y,z]");
@@ -34,10 +31,10 @@ class IK_Node : public rclcpp::Node{
             Eigen::Vector3d p_right(msg.data[3], msg.data[4], msg.data[5]);
 
             auto cmd = robot_.generate_command(p_left, p_right);
-            if (!cmd) {
-                RCLCPP_WARN(this->get_logger(), "IK: No solution for one or both foot targets");
-                return;
-            }
+            // if (!cmd) {
+            //     RCLCPP_WARN(this->get_logger(), "IK: No solution for one or both foot targets");
+            //     return;
+            // }
 
             std_msgs::msg::Float64MultiArray output;
             
@@ -86,7 +83,6 @@ class IK_Node : public rclcpp::Node{
         rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr publisher_;
         rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr p_subscriber_;
         rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr js_subscriber_;
-
 };
 
 int main(int argc, char *argv[]) {

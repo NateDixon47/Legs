@@ -71,6 +71,7 @@ def launch_setup(context, *args, **kwargs):
                 else []
             ),
         ),
+
     ]
 
     # Spawn both controllers in a single sequential call. Two parallel spawners
@@ -81,7 +82,7 @@ def launch_setup(context, *args, **kwargs):
             executable="spawner",
             arguments=[
                 "joint_state_broadcaster",
-                "position_controller",
+                "effort_controller",
                 "--param-file",
                 controllers,
             ],
@@ -112,6 +113,26 @@ def launch_setup(context, *args, **kwargs):
                 output="both",
             )
         )
+
+    # Capture-point walking pipeline (always on):
+    #   cp_node -> /foot_pos -> ik_node -> /position_controller/commands
+    mjcf_path = PathJoinSubstitution([pkg, "mujoco", "scene.xml"]).perform(context)
+    nodes.append(
+        Node(
+            package="legs_control",
+            executable="torque_node",
+            parameters=[{"use_sim_time": True, "mjcf_path": mjcf_path}],
+            output="both",
+        )
+    )
+    nodes.append(
+        Node(
+            package="footstep_planner",
+            executable="cp_node",
+            parameters=[{"use_sim_time": True, "mjcf_path": mjcf_path}],
+            output="both",
+        )
+    )
 
     return nodes
 

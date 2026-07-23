@@ -128,7 +128,7 @@ class Step_Node : public rclcpp::Node {
         bool have_foot_pos_ = false;
         double t_step_start_ = 0.0;
         double dt_traj_ = 0.01;   // = control period (100 Hz)
-        double T_step_ = 0.5;     // swing duration
+        double T_step_ = 1.5;     // swing duration
 };
 
 int main(int argc, char *argv[]) {

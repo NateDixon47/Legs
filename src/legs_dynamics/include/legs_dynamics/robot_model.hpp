@@ -61,6 +61,9 @@ class RobotModel {
     Eigen::Vector3d   comPosition() const;          // whole-body CoM, world frame
     Eigen::Isometry3d footPose(legs::Side) const;   // foot site pose, world frame
     Eigen::MatrixXd   footJacobian(legs::Side) const;  // dp_foot/dv     3 x nv
+    Eigen::Vector3d comVelocity() const; 
+
+    Eigen::MatrixXd footJacobianFull(legs::Side side) const;
 
  private:
     std::unique_ptr<mjModel, MjModelDeleter> model_;

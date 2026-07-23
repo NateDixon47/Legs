@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(legs_control)
+project(footstep_planner)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -9,49 +9,25 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(utilities REQUIRED)
+find_package(legs_dynamics REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
-find_package(legs_dynamics REQUIRED)
-
-add_executable(ik_node src/ik_node.cpp)
-add_executable(step src/step.cpp)
-add_executable(torque_node src/torque_node.cpp)
-
-ament_target_dependencies(ik_node
-  rclcpp
-  utilities
-  std_msgs
-  sensor_msgs)
+find_package(visualization_msgs)
 
 
-ament_target_dependencies(torque_node
-  rclcpp
-  utilities
-  std_msgs
-  sensor_msgs
-  nav_msgs
-  legs_dynamics)
+add_executable(cp_node src/cp.cpp)
 
-# Lets #include "legs_control/..." headers resolve from this package's include/.
-target_include_directories(step PRIVATE include)
-ament_target_dependencies(step
-  rclcpp
-  utilities
-  std_msgs
-  sensor_msgs)
+target_include_directories(cp_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
 
-install(TARGETS ik_node
+ament_target_dependencies(cp_node
+  rclcpp utilities legs_dynamics geometry_msgs std_msgs sensor_msgs nav_msgs visualization_msgs)
+
+install(TARGETS cp_node
   DESTINATION lib/${PROJECT_NAME})
-
-install(TARGETS step
-  DESTINATION lib/${PROJECT_NAME})
-
-install(TARGETS torque_node
-  DESTINATION lib/${PROJECT_NAME})
-
-
 
 
 

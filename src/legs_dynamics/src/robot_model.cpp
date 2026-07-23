@@ -162,4 +162,23 @@ Eigen::MatrixXd RobotModel::footJacobian(legs::Side side) const {
     return J;  // converts to column-major MatrixXd on return
 }
 
+Eigen::MatrixXd RobotModel::footJacobianFull(legs::Side side) const {
+    int sid = (side == legs::Side::Left) ? left_foot_site_id_ : right_foot_site_id_;
+    if (sid == -1) {
+        throw std::runtime_error("Foot site not found; add <site> tags to the MJCF");
+    }
+    const int nv = model_->nv;
+    Eigen::Matrix<double, 3, Eigen::Dynamic, Eigen::RowMajor> Jp(3, nv), Jr(3, nv);
+    mj_jacSite(model_.get(), data_.get(), Jp.data(), Jr.data(), sid);
+    Eigen::MatrixXd J(6, nv);
+    J.topRows<3>() = Jp;
+    J.bottomRows<3>() = Jr;
+    return J;
+}
+
+Eigen::Vector3d RobotModel::comVelocity() const {
+    mj_subtreeVel(model_.get(), data_.get());
+    return Eigen::Map<const Eigen::Vector3d>(data_->subtree_linvel + 3 * base_body_id_);
+}
+
 }  // namespace dynamics

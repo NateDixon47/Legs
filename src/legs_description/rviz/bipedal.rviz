@@ -1,5 +1,6 @@
 Panels:
   - Class: rviz_common/Displays
+    Help Height: 70
     Name: Displays
     Property Tree Widget:
       Expanded:
@@ -7,8 +8,12 @@ Panels:
         - /RobotModel1
         - /TF1
       Splitter Ratio: 0.5
+    Tree Height: 500
   - Class: rviz_common/Views
+    Expanded:
+      - /Current View1
     Name: Views
+    Splitter Ratio: 0.5
 Visualization Manager:
   Class: ""
   Displays:
@@ -16,14 +21,24 @@ Visualization Manager:
       Cell Size: 0.25
       Class: rviz_default_plugins/Grid
       Color: 160; 160; 164
+      Enabled: true
+      Line Style:
+        Line Width: 0.029999999329447746
+        Value: Lines
       Name: Grid
       Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
       Plane: XY
       Plane Cell Count: 20
       Reference Frame: <Fixed Frame>
       Value: true
     - Alpha: 1
       Class: rviz_default_plugins/RobotModel
+      Collision Enabled: false
+      Description File: ""
       Description Source: Topic
       Description Topic:
         Depth: 5
@@ -31,17 +46,145 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /robot_description
+      Enabled: true
+      Links:
+        All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+        base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        body_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_femur_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_foot_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_hip_connector_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_tibia_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_femur_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_foot_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_hip_connector_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_tibia_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+      Mass Properties:
+        Inertia: false
+        Mass: false
       Name: RobotModel
-      Visual Enabled: true
-      Collision Enabled: false
+      TF Prefix: ""
+      Update Interval: 0
       Value: true
+      Visual Enabled: true
     - Class: rviz_default_plugins/TF
+      Enabled: true
+      Frame Timeout: 15
+      Frames:
+        All Enabled: true
+        base_link:
+          Value: true
+        body_link:
+          Value: true
+        left_femur_link:
+          Value: true
+        left_foot_link:
+          Value: true
+        left_hip_connector_link:
+          Value: true
+        left_tibia_link:
+          Value: true
+        odom:
+          Value: true
+        right_femur_link:
+          Value: true
+        right_foot_link:
+          Value: true
+        right_hip_connector_link:
+          Value: true
+        right_tibia_link:
+          Value: true
+      Marker Scale: 0.30000001192092896
       Name: TF
-      Marker Scale: 0.3
       Show Arrows: true
       Show Axes: true
       Show Names: true
+      Tree:
+        odom:
+          base_link:
+            body_link:
+              left_hip_connector_link:
+                left_femur_link:
+                  left_tibia_link:
+                    left_foot_link:
+                      {}
+              right_hip_connector_link:
+                right_femur_link:
+                  right_tibia_link:
+                    right_foot_link:
+                      {}
+      Update Interval: 0
       Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Marker
+      Namespaces:
+        capture_point: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /capture_point
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Marker
+      Namespaces:
+        left_foot: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /left_foot
+      Value: true
+  Enabled: true
   Global Options:
     Background Color: 48; 48; 48
     Fixed Frame: odom
@@ -52,21 +195,43 @@ Visualization Manager:
     - Class: rviz_default_plugins/Select
     - Class: rviz_default_plugins/FocusCamera
     - Class: rviz_default_plugins/Measure
+      Line color: 128; 128; 0
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
   Value: true
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 2.0
+      Distance: 1.6804994344711304
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.05999999865889549
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
       Focal Point:
         X: 0
         Y: 0
         Z: 0
+      Focal Shape Fixed Size: true
+      Focal Shape Size: 0.05000000074505806
+      Invert Z Axis: false
       Name: Current View
-      Pitch: 0.3
+      Near Clip Distance: 0.009999999776482582
+      Pitch: 0.12500005960464478
       Target Frame: <Fixed Frame>
-      Yaw: 0.785
+      Value: Orbit (rviz_default_plugins)
+      Yaw: 6.073184967041016
+    Saved: ~
 Window Geometry:
-  Height: 800
-  Width: 1200
   Displays:
     collapsed: false
+  Height: 1136
+  Hide Left Dock: false
+  Hide Right Dock: false
+  QMainWindow State: 000000ff00000000fd0000000100000000000001cb00000416fc0200000002fb000000100044006900730070006c006100790073010000003d00000277000000c900fffffffb0000000a0056006900650077007301000002ba00000199000000a400ffffff000005690000041600000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  Views:
+    collapsed: false
+  Width: 1850
+  X: 1990
+  Y: 360
