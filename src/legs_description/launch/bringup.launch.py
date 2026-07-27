@@ -120,7 +120,7 @@ def launch_setup(context, *args, **kwargs):
     nodes.append(
         Node(
             package="legs_control",
-            executable="torque_node",
+            executable="controller_node",
             parameters=[{"use_sim_time": True, "mjcf_path": mjcf_path}],
             output="both",
         )

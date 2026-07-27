@@ -25,7 +25,7 @@
     <!-- Free-floating base (torso). The freejoint gives it 6 DOF so it falls/moves
          under gravity. Spawn height ~0.55 m so the feet start near a future z=0 floor
          (tune when the ground plane is added). Inertial = body_link from the URDF. -->
-    <body name="base" pos="0 0 0.498">
+    <body name="base" pos="0 0 0.499">
 
       <!-- Base DOF mode (pick one):
            PLANAR (sagittal x-z): the 3 joints below — robot moves/falls only fore-aft + pitch.
@@ -75,8 +75,8 @@
           <joint name="right_knee" pos="0 0 0" axis="0 1 0" range="0 2.57" actuatorfrcrange="-60 60" damping="0.1" frictionloss="0.01"/>
           <geom type="mesh" rgba="0.1 0.1 0.1 1" mesh="tibia_final"/>
 
-          <geom pos="0.29977 0 0.01196" quat="0.601126 -0.601128 0.372352 0.372353" type="mesh" rgba="0.1 0.1 0.1 1" mesh="foot_v4" contype="1" conaffinity="1"/>
-          <!-- <geom pos="0.29977 0 0.01196" quat="0.601126 -0.601128 0.372352 0.372353" type="mesh" rgba="0.1 0.1 0.1 1" mesh="foot_v4" contype="0" conaffinity="0"/> -->
+          <!-- <geom pos="0.29977 0 0.01196" quat="0.601126 -0.601128 0.372352 0.372353" type="mesh" rgba="0.1 0.1 0.1 1" mesh="foot_v4" contype="1" conaffinity="1"/> -->
+          <geom pos="0.29977 0 0.01196" quat="0.601126 -0.601128 0.372352 0.372353" type="mesh" rgba="0.1 0.1 0.1 1" mesh="foot_v4" contype="0" conaffinity="0"/>
 
           <!-- Contact point for RobotModel footPose/footJacobian (co-located with the foot geom). -->
           <site name="right_foot" pos="0.29977 0 0.01196" quat="0.601126 -0.601128 0.372352 0.372353" size="0.01" rgba="1 0 0 1"/>
@@ -95,8 +95,32 @@
     <weld body1="base"/>
   </equality> -->
    <equality>
-    <weld body1="right_tibia_link"/>
+    <weld body1="right_tibia_link" 
+    relpose="0.33610 -0.05921 -0.03186 -0.054499 -0.870846 -0.030515 0.487571"
+    solref="-8000 -300" solimp="0.99 0.999 0.001"/>
   </equality>
+  <option timestep="0.002" iterations="150" ls_iterations="50"/>
+
+  <!-- <equality>
+    <weld body1="right_femur_link"
+    relpose="0.38975 -0.05921 -0.37145 -0.029140 -0.465649 -0.055247 0.882762"
+    solref="-8000 -300" solimp="0.99 0.999 0.001"/>
+  </equality> -->
+
+  <keyframe>
+  <key name="initial"
+       qpos="
+         0 0 0.499
+         1 0 0 0
+         0.125 0.6 1.15
+        -0.125 -0.6 1.15
+       "/>
+  </keyframe>
+
+  <!-- <equality>
+    <connect body1="right_tibia_link" body2="world" anchor="0.29977 0 0.01196"
+              solref="0.01 1" solimp="0.95 0.99 0.001"/>
+  </equality> -->
 
   <!-- Position (servo) actuators: MuJoCo holds each joint at the commanded angle.
        The plugin treats POSITION actuators as position control. ctrl = target angle. -->

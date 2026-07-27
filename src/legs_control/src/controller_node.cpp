@@ -19,13 +19,13 @@
 
 using namespace std::chrono_literals;
 
-class Torque_Node : public rclcpp::Node{
+class controller_node : public rclcpp::Node{
     public:
-        Torque_Node() : Node("torque_node"), robot_(), z_target_(0.475){
+        controller_node() : Node("controller_node"), robot_(), z_target_(0.475), stance_(legs::Side::Right){
             publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/effort_controller/commands", 10);
-            p_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>("/foot_pos", 10, std::bind(&Torque_Node::IK_callback, this, std::placeholders::_1));
-            js_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&Torque_Node::js_callback, this, std::placeholders::_1));
-            odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("/simulator/floating_base_state", 10, std::bind(&Torque_Node::odom_callback, this, std::placeholders::_1));
+            p_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>("/foot_pos", 10, std::bind(&controller_node::IK_callback, this, std::placeholders::_1));
+            js_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&controller_node::js_callback, this, std::placeholders::_1));
+            odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("/simulator/floating_base_state", 10, std::bind(&controller_node::odom_callback, this, std::placeholders::_1));
             stance_sub_ = this->create_subscription<std_msgs::msg::Int32>("/stance", 10,
                  [this](const std_msgs::msg::Int32 &msg) {
                     stance_ = (msg.data == 0) ? legs::Side::Left : legs::Side::Right;
@@ -34,12 +34,15 @@ class Torque_Node : public rclcpp::Node{
             std::string mjcf = this->declare_parameter<std::string>("mjcf_path", "");
             model_ = std::make_unique<dynamics::RobotModel>(mjcf);
 
-            timer_ = this->create_wall_timer(2ms, std::bind(&Torque_Node::PD_control, this));
+            timer_ = this->create_wall_timer(2ms, std::bind(&controller_node::stance_control, this));
             q_des_ << 0.125, 0.6, 1.15, 0.0, -0.7, 1.3;
             q_des_prev_ << 0.0, 0.6, 1.15, 0.0, -0.6, 1.15;
 
             log_file_.open("torque_log.csv");
             q_log_file_.open("q_log.csv");
+            height_log_file_.open("height_log.csv");
+            rotation_log_file_.open("rot_log.csv");
+            posture_err_log_file_.open("posture_e.csv");
 
             //header
             log_file_ << "time," << "left_hip_yaw," << "left_hip_pitch," << "left_knee,"
@@ -47,9 +50,12 @@ class Torque_Node : public rclcpp::Node{
 
             q_log_file_ << "time," << "right_hip_yaw," << "right_hip_pitch," << "right_knee,"
                         << "right_hip_yaw_d," << "right_hip_pitch_d," << "right_knee_d\n";
+            height_log_file_ << "time," << "torso_height," << "desired_height\n";
+            rotation_log_file_ << "time," << "roll," << "pitch," << "yaw," << "roll_d," << "pitch_d," << "yaw_d\n";
+            posture_err_log_file_ << "time," << "roll_e," << "pitch_e," << "yaw_e\n"; 
         }
 
-        ~Torque_Node() { log_file_.close(); q_log_file_.close(); }
+        ~controller_node() { log_file_.close(); q_log_file_.close(); height_log_file_.close(); rotation_log_file_.close(); posture_err_log_file_.close(); }
 
     private:
         robot::Robot robot_;
@@ -74,8 +80,10 @@ class Torque_Node : public rclcpp::Node{
             have_target_ = true;
         }
 
-        void PD_control() {
+        void stance_control() {
             if (!map_built_ || !base_ready_) return;
+
+            double t = this->get_clock()->now().seconds();
 
             Eigen::VectorXd tau, tau_g;
             
@@ -94,19 +102,26 @@ class Torque_Node : public rclcpp::Node{
             double foot_z = model_->footPose(stance_).translation().z();
             double torso_z = state_.base_pose.translation().z() - foot_z;
             double base_vel_z = state_.base_lin_vel.z();
-            // F.z() += Kp_h_ * (z_target_ - torso_z) - Kd_h_ * base_vel_z;
+            F.z() += Kp_h_ * (z_target_ - torso_z) - Kd_h_ * base_vel_z;
+
+            height_log_file_
+                << std::fixed << std::setprecision(6)
+                << t << ","
+                << torso_z << ","
+                << z_target_ << "\n";
 
             tau_g = g.bottomRows<6>() - Jt.bottomRows<6>() * F;
             // tau_g = g.tail<6>();
 
-            RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 500, "F=[%.1f, %.1f, %.1f] tau_g hip_y=%.1f hip_p=%.1f knee=%.1f", F.x(), F.y(), F.z(), tau_g(3), tau_g(4), tau_g(5));
+            RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 100, "F=[%.1f, %.1f, %.1f] tau_g hip_y=%.1f hip_p=%.1f knee=%.1f", F.x(), F.y(), F.z(), tau_g(3), tau_g(4), tau_g(5));
+            RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 100, "Height: %.4f", torso_z);
 
             if (!have_q_des_prev_) {
                 q_des_prev_ = q_des_;
                 have_q_des_prev_ = true;
             }
 
-            RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 500, "q_des_=%.1f %.1f %.1f", q_des_(3), q_des_(4), q_des_(5));
+            // RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 500, "q_des_=%.1f %.1f %.1f", q_des_(3), q_des_(4), q_des_(5));
 
             Eigen::Matrix3d R = state_.base_pose.rotation();
             Eigen::Matrix3d Rd = R_des_;
@@ -114,14 +129,34 @@ class Torque_Node : public rclcpp::Node{
             // Vee map of the skew part = a small angle rotation-vector error [roll pitch yaw]
             Eigen::Matrix3d skew = 0.5 * (Rd.transpose() * R - R.transpose() * Rd);
             Eigen::Vector3d e_rot(skew(2,1), skew(0,2), skew(1,0));
+            // Eigen::Vector3d e_rot = vee(skew);
 
-            RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 500, "e_rot=%.1f %.1f %.1f", e_rot(0), e_rot(1), e_rot(2));
+            Eigen::Vector3d rpy = R.eulerAngles(0, 1, 2);
+            Eigen::Vector3d rpy_d = Rd.eulerAngles(0, 1, 2);
+
+            posture_err_log_file_
+                << std::fixed << std::setprecision(6)
+                << t << ","
+                << e_rot.x() << ","
+                << e_rot.y() << ","
+                << e_rot.z() << "\n";
+
+            rotation_log_file_
+                << std::fixed << std::setprecision(6)
+                << t << ","
+                << rpy.x() << ","
+                << rpy.y() << "," 
+                << rpy.z() << ","
+                << rpy_d.x() << ","
+                << rpy_d.y() << ","
+                << rpy_d.z()<< "\n";
+            // RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 500, "e_rot=%.1f %.1f %.1f", e_rot(0), e_rot(1), e_rot(2));
 
             // PD moment on the torso, regulate the roll and pitch, leave the yaw alone
             Eigen::Vector3d omega = state_.base_ang_vel;
             Eigen::Vector3d M;
-            M.x() = Kp_o_ * e_rot.x() - Kd_o_ * omega.x();
-            M.y() = Kp_o_ * e_rot.y() - Kd_o_ * omega.y();
+            M.x() = Kp_o_ * e_rot.x() + Kd_o_ * omega.x();
+            M.y() = Kp_o_ * e_rot.y() + Kd_o_ * omega.y();
             M.z() = 0.0;
 
             // Map the stance joint torques via the rotational Jacobians joint columns
@@ -129,24 +164,25 @@ class Torque_Node : public rclcpp::Node{
             Eigen::MatrixXd Jr_joints = Jfull.bottomRows<3>().rightCols<6>();
             Eigen::VectorXd tau_orient = Jr_joints.transpose() * M;
 
-            // tau_g += tau_orient;
+            tau_g += tau_orient;
 
             // q_dot_des = (q_des_ - q_des_prev_) / 0.002;
             q_des_prev_ = q_des_;
             // tau = Kp_ * (q_des_ - q) + Kd_ * (q_dot_des - q_dot) + tau_g;
+            tau = tau_g;
 
-            double t_q = this->get_clock()->now().seconds();
-            q_log_file_
-                << std::fixed << std::setprecision(6)
-                << t_q << ","
-                << q[3] << ","
-                << q[4] << ","
-                << q[5] << ","
-                << q_des_[3] << ","
-                << q_des_[4] << ","
-                << q_des_[5] << "\n";
+            // double t_q = this->get_clock()->now().seconds();
+            // q_log_file_
+            //     << std::fixed << std::setprecision(6)
+            //     << t_q << ","
+            //     << q[3] << ","
+            //     << q[4] << ","
+            //     << q[5] << ","
+            //     << q_des_[3] << ","
+            //     << q_des_[4] << ","
+            //     << q_des_[5] << "\n";
 
-            tau = Kp_ * (q_des_ - q) + Kd_ * (-q_dot) + tau_g;
+            // tau = Kp_ * (q_des_ - q) + Kd_ * (-q_dot) + tau_g;
 
             tau = tau.cwiseMax(-tau_max_).cwiseMin(tau_max_);
 
@@ -159,7 +195,8 @@ class Torque_Node : public rclcpp::Node{
             torque.data[1] = 0.0;
             torque.data[2] = 0.0;
 
-            double t = this->get_clock()->now().seconds();
+            // torque.data[5] = 0.0;
+
 
             log_file_
                 << std::fixed << std::setprecision(6)
@@ -284,10 +321,10 @@ class Torque_Node : public rclcpp::Node{
         double Kd_ {20.0};
         double tau_max_ {60.0};
 
-        double Kp_h_ {20.0};
-        double Kd_h_ {2.0};
+        double Kp_h_ {5000.0};
+        double Kd_h_ {500.0};
         double z_target_;
-        double Kp_o_ {100.0};
+        double Kp_o_ {400.0};
         double Kd_o_ {10.0};
 
         Eigen::Matrix3d R_des_;
@@ -302,12 +339,15 @@ class Torque_Node : public rclcpp::Node{
 
         std::ofstream log_file_;
         std::ofstream q_log_file_;
+        std::ofstream rotation_log_file_;
+        std::ofstream height_log_file_;
+        std::ofstream posture_err_log_file_;
 
 };
 
 int main(int argc, char *argv[]) {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<Torque_Node>());
+    rclcpp::spin(std::make_shared<controller_node>());
     rclcpp::shutdown();
     return 0;
 }

@@ -18,6 +18,8 @@ find_package(legs_dynamics REQUIRED)
 add_executable(ik_node src/ik_node.cpp)
 add_executable(step src/step.cpp)
 add_executable(torque_node src/torque_node.cpp)
+add_executable(controller_node src/controller_node.cpp)
+
 
 ament_target_dependencies(ik_node
   rclcpp
@@ -27,6 +29,15 @@ ament_target_dependencies(ik_node
 
 
 ament_target_dependencies(torque_node
+  rclcpp
+  utilities
+  std_msgs
+  sensor_msgs
+  nav_msgs
+  legs_dynamics)
+
+
+  ament_target_dependencies(controller_node
   rclcpp
   utilities
   std_msgs
@@ -51,7 +62,8 @@ install(TARGETS step
 install(TARGETS torque_node
   DESTINATION lib/${PROJECT_NAME})
 
-
+install(TARGETS controller_node
+  DESTINATION lib/${PROJECT_NAME})
 
 
 
