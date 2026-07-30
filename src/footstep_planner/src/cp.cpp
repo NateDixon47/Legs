@@ -17,6 +17,9 @@
 #include "visualization_msgs/msg/marker.hpp"
 #include "std_msgs/msg/int32.hpp"
 
+#include <fstream>
+#include <iomanip>
+
 
 
 using namespace std::chrono_literals;
@@ -36,7 +39,12 @@ class CP_Node : public rclcpp::Node{
             cp_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("/capture_point", 10);
             lf_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("/left_foot", 10);
             stance_pub_ = this->create_publisher<std_msgs::msg::Int32>("/stance", 10);
+
+            cp_log_.open("cp_log.csv");
+            cp_log_ << "time," << "x," << "y\n";
         }
+
+        ~CP_Node() {cp_log_.close(); }
 
 
     private:
@@ -56,13 +64,15 @@ class CP_Node : public rclcpp::Node{
         robot::RobotState state_;
         capturepoint::CapturePoint cp_;
 
+        std::ofstream cp_log_;
+
         bool map_built_ = false;
         bool base_ready_ = false;
 
         std::unordered_map<std::string, int> joint_map_;
 
-        double T_ = 0.2; 
-        double T_max_ = 1.5 * T_;
+        double T_ = 0.15;
+        double T_max_ = 3.0 * T_;
 
         double height_ = -0.475;
 
@@ -215,6 +225,19 @@ class CP_Node : public rclcpp::Node{
             lf_msg.color.b = 1.0; lf_msg.color.a = 1.0;
             lf_pub_->publish(lf_msg);
 
+            // publish current stance
+            std_msgs::msg::Int32 stance_msg;
+            stance_msg.data = (stance_ == legs::Side::Left) ? 0 : 1; // 0 for left, 1 for right
+            stance_pub_->publish(stance_msg);
+
+            double t = this->get_clock()->now().seconds();
+
+            cp_log_
+                << std::fixed << std::setprecision(6)
+                << t << ","
+                << xi.x() << ","
+                << xi.y() << "\n";
+
             visualization_msgs::msg::Marker m;
 
             Eigen::Vector2d xi_world = xi + p_stance_w.head<2>();
@@ -240,14 +263,14 @@ class CP_Node : public rclcpp::Node{
 
             // --- advance the step clock; transition when the step completes ---
            
-            // if (t_swing_ >= T_ && err < 0.05) {
-            //     RCLCPP_INFO(get_logger(), "Reached pos");
-            //     switch_stance();
-            // }
-            // else if (t_swing_ >= T_max_) {
-            //     RCLCPP_INFO(get_logger(), "Max Time");
-            //     switch_stance();
-            // }
+            if (t_swing_ >= T_ && err < 0.05) {
+                RCLCPP_INFO(get_logger(), "Reached pos");
+                switch_stance();
+            }
+            else if (t_swing_ >= T_max_) {
+                RCLCPP_INFO(get_logger(), "Max Time");
+                switch_stance();
+            }
             
             t_swing_ += 0.025;
         }
@@ -260,9 +283,9 @@ class CP_Node : public rclcpp::Node{
             p_start_ = (old_stance - stance_anchor_w_).head<2>();
             cp_.switch_stance();
             t_swing_ = 0.0;
-            std_msgs::msg::Int32 msg;
-            msg.data = (stance_ == legs::Side::Left) ? 0 : 1; // 0 for left, 1 for right
-            stance_pub_->publish(msg);
+            // std_msgs::msg::Int32 msg;
+            // msg.data = (stance_ == legs::Side::Left) ? 0 : 1; // 0 for left, 1 for right
+            // stance_pub_->publish(msg);
         }
 
 };

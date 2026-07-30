@@ -380,7 +380,7 @@
     </hardware>
     <joint name="left_hip_yaw">
       <command_interface name="effort"/>
-      <state_interface name="position"><param name="initial_value">0.125</param></state_interface>
+      <state_interface name="position"><param name="initial_value">0.15</param></state_interface>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
@@ -398,19 +398,19 @@
     </joint>
     <joint name="right_hip_yaw">
       <command_interface name="effort"/>
-      <state_interface name="position"><param name="initial_value">-0.125</param></state_interface>
+      <state_interface name="position"><param name="initial_value">-0.35</param></state_interface>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
     <joint name="right_hip_pitch">
       <command_interface name="effort"/>
-      <state_interface name="position"><param name="initial_value">-0.6</param></state_interface>
+      <state_interface name="position"><param name="initial_value">-0.45</param></state_interface>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
     <joint name="right_knee">
       <command_interface name="effort"/>
-      <state_interface name="position"><param name="initial_value">1.15</param></state_interface>
+      <state_interface name="position"><param name="initial_value">0.9</param></state_interface>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>

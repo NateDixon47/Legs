@@ -21,7 +21,7 @@ using namespace std::chrono_literals;
 
 class controller_node : public rclcpp::Node{
     public:
-        controller_node() : Node("controller_node"), robot_(), z_target_(0.5), stance_(legs::Side::Right){
+        controller_node() : Node("controller_node"), robot_(), z_target_(0.475), stance_(legs::Side::Right){
             publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/effort_controller/commands", 10);
             p_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>("/foot_pos", 10, std::bind(&controller_node::IK_callback, this, std::placeholders::_1));
             js_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&controller_node::js_callback, this, std::placeholders::_1));
@@ -29,7 +29,6 @@ class controller_node : public rclcpp::Node{
             stance_sub_ = this->create_subscription<std_msgs::msg::Int32>("/stance", 10,
                  [this](const std_msgs::msg::Int32 &msg) {
                     stance_ = (msg.data == 0) ? legs::Side::Left : legs::Side::Right;
-                    log_stance_ = (stance_ == legs::Side::Left) ? 0 : 1;
                     });
 
             std::string mjcf = this->declare_parameter<std::string>("mjcf_path", "");
@@ -49,10 +48,8 @@ class controller_node : public rclcpp::Node{
             log_file_ << "time," << "left_hip_yaw," << "left_hip_pitch," << "left_knee,"
                       << "right_hip_yaw," << "right_hip_pitch," << "right_knee\n";
 
-            q_log_file_ << "time," << "q," << "stance," 
-                        << "left_hip_yaw," << "left_hip_pitch," << "left_knee," << "right_hip_yaw," << "right_hip_pitch," << "right_knee," 
-                        << "left_hip_yaw_d," << "left_hip_pitch_d," << "left_knee_d," << "right_hip_yaw_d," << "right_hip_pitch_d," << "right_knee_d\n";
-
+            q_log_file_ << "time," << "right_hip_yaw," << "right_hip_pitch," << "right_knee,"
+                        << "right_hip_yaw_d," << "right_hip_pitch_d," << "right_knee_d\n";
             height_log_file_ << "time," << "torso_height," << "desired_height\n";
             rotation_log_file_ << "time," << "roll," << "pitch," << "yaw," << "roll_d," << "pitch_d," << "yaw_d\n";
             posture_err_log_file_ << "time," << "roll_e," << "pitch_e," << "yaw_e\n"; 
@@ -73,11 +70,11 @@ class controller_node : public rclcpp::Node{
 
             auto q_des = robot_.generate_command(p_left, p_right);
             if (!q_des) {
-                RCLCPP_WARN(this->get_logger(), "IK: No solution for one or both foot targets");
+                // RCLCPP_WARN(this->get_logger(), "IK: No solution for one or both foot targets");
                 return;
             }
 
-            q_des_ = *q_des;
+            // q_des_ = *q_des;
 
             last_target_ << p_left, p_right;     // remember what we commanded, for the FK check
             have_target_ = true;
@@ -93,7 +90,6 @@ class controller_node : public rclcpp::Node{
             Eigen::VectorXd q = state_.q;
             Eigen::VectorXd q_dot_des;
             Eigen::VectorXd q_dot = state_.q_dot;
-
             
             // F = J_base
             Eigen::VectorXd g = model_->gravityForces();
@@ -101,9 +97,6 @@ class controller_node : public rclcpp::Node{
             Eigen::MatrixXd Jt = model_->footJacobian(stance_).transpose();
 
             Eigen::Vector3d F = Jt.topRows<3>().completeOrthogonalDecomposition().solve(g.head<3>());
-
-            const int stance0 = (stance_ == legs::Side::Left) ? 0 : 3;
-            const int swing0 = (stance_ == legs::Side::Left) ? 3 : 0;
 
             // Height controller
             double foot_z = model_->footPose(stance_).translation().z();
@@ -120,15 +113,15 @@ class controller_node : public rclcpp::Node{
             tau_g = g.bottomRows<6>() - Jt.bottomRows<6>() * F;
             // tau_g = g.tail<6>();
 
-            // RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 100, "F=[%.1f, %.1f, %.1f] tau_g hip_y=%.1f hip_p=%.1f knee=%.1f", F.x(), F.y(), F.z(), tau_g(3), tau_g(4), tau_g(5));
-            // RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 100, "Height: %.4f", torso_z);
+            RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 100, "F=[%.1f, %.1f, %.1f] tau_g hip_y=%.1f hip_p=%.1f knee=%.1f", F.x(), F.y(), F.z(), tau_g(3), tau_g(4), tau_g(5));
+            RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 100, "Height: %.4f", torso_z);
 
             if (!have_q_des_prev_) {
                 q_des_prev_ = q_des_;
                 have_q_des_prev_ = true;
             }
 
-            // RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 100, "q_des_=%.1f %.1f %.1f", q_des_(0), q_des_(1), q_des_(2));
+            // RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 500, "q_des_=%.1f %.1f %.1f", q_des_(3), q_des_(4), q_des_(5));
 
             Eigen::Matrix3d R = state_.base_pose.rotation();
             Eigen::Matrix3d Rd = R_des_;
@@ -178,27 +171,16 @@ class controller_node : public rclcpp::Node{
             // tau = Kp_ * (q_des_ - q) + Kd_ * (q_dot_des - q_dot) + tau_g;
             tau = tau_g;
 
-            for (int k = 0; k<3; k++) {
-                int i = swing0 + k;
-                tau(i) = tau_g(i) + Kp_ * (q_des_(i) - q(i)) + Kd_ * (-q_dot(i));
-            }
-
-            q_log_file_
-                << std::fixed << std::setprecision(6)
-                << t << ","
-                << log_stance_ << ","
-                << q[0] << ","
-                << q[1] << ","
-                << q[2] << ","
-                << q[3] << ","
-                << q[4] << ","
-                << q[5] << ","
-                << q_des_[0] << ","
-                << q_des_[1] << ","
-                << q_des_[2] << ","
-                << q_des_[3] << ","
-                << q_des_[4] << ","
-                << q_des_[5] << "\n";
+            // double t_q = this->get_clock()->now().seconds();
+            // q_log_file_
+            //     << std::fixed << std::setprecision(6)
+            //     << t_q << ","
+            //     << q[3] << ","
+            //     << q[4] << ","
+            //     << q[5] << ","
+            //     << q_des_[3] << ","
+            //     << q_des_[4] << ","
+            //     << q_des_[5] << "\n";
 
             // tau = Kp_ * (q_des_ - q) + Kd_ * (-q_dot) + tau_g;
 
@@ -209,9 +191,9 @@ class controller_node : public rclcpp::Node{
             for (Eigen::Index i = 0; i < tau.size(); ++i) {
                 torque.data[static_cast<std::size_t>(i)] = tau(i);
             }
-            // torque.data[0] = 0.0;
-            // torque.data[1] = 0.0;
-            // torque.data[2] = 0.0;
+            torque.data[0] = 0.0;
+            torque.data[1] = 0.0;
+            torque.data[2] = 0.0;
 
             // torque.data[5] = 0.0;
 
@@ -335,8 +317,8 @@ class controller_node : public rclcpp::Node{
             "right_hip_yaw", "right_hip_pitch", "right_knee"
         };
 
-        double Kp_ {10.0};
-        double Kd_ {1.0};
+        double Kp_ {200.0};
+        double Kd_ {20.0};
         double tau_max_ {60.0};
 
         double Kp_h_ {5000.0};
@@ -354,7 +336,6 @@ class controller_node : public rclcpp::Node{
         Eigen::VectorXd q_des_prev_ = Eigen::VectorXd::Zero(6);
 
         legs::Side stance_;
-        int log_stance_;
 
         std::ofstream log_file_;
         std::ofstream q_log_file_;

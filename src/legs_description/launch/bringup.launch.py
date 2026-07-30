@@ -11,9 +11,10 @@ Control the legs (joint angles in rad):
 """
 
 import os
+import datetime
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction
 from launch.substitutions import (
     Command,
     FindExecutable,
@@ -134,6 +135,25 @@ def launch_setup(context, *args, **kwargs):
         )
     )
 
+    # Optional rosbag recording (record:=true). Timestamped output dir so each run
+    # gets a fresh bag (ros2 bag record errors if the dir already exists). Ctrl-C the
+    # launch to finalize the bag cleanly. Includes /clock so playback with --clock works
+    # and /tf(+static)+/robot_description so RViz replays with no robot_state_publisher.
+    if LaunchConfiguration("record").perform(context) == "true":
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        nodes.append(
+            ExecuteProcess(
+                cmd=[
+                    "ros2", "bag", "record",
+                    "-o", os.path.expanduser(f"~/legs_ws/bags/run_{stamp}"),
+                    "/tf", "/tf_static", "/joint_states", "/clock", "/robot_description",
+                    "/simulator/floating_base_state",
+                    "/capture_point", "/left_foot", "/foot_pos", "/stance",
+                ],
+                output="screen",
+            )
+        )
+
     return nodes
 
 
@@ -149,6 +169,11 @@ def generate_launch_description():
                 "rviz",
                 default_value="false",
                 description="Also launch RViz to visualize the robot",
+            ),
+            DeclareLaunchArgument(
+                "record",
+                default_value="false",
+                description="Record a timestamped rosbag of the run to ~/legs_ws/bags/",
             ),
             OpaqueFunction(function=launch_setup),
         ]

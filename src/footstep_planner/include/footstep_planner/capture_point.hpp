@@ -9,7 +9,7 @@ namespace capturepoint {
 
 class CapturePoint {
     public:
-        CapturePoint() : K_(1.0),  height_(0.475){}
+        CapturePoint() : K_(1.0),  height_(0.5){}
 
         Eigen::Vector2d compute_cp(const Eigen::Vector2d &x, const Eigen::Vector2d &x_dot) {
             return x + x_dot/w_;
@@ -58,7 +58,7 @@ class CapturePoint {
         double height_;
         double w_ = std::sqrt(9.81/height_);
         float K_;
-        double leg_offset_ = 0.2; // left and right leg offset for step
+        double leg_offset_ = 0.1; // left and right leg offset for step
         int side_ = 1;
 
 };
