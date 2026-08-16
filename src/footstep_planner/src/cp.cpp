@@ -19,6 +19,7 @@
 
 #include <fstream>
 #include <iomanip>
+#include <algorithm>
 
 
 
@@ -42,9 +43,15 @@ class CP_Node : public rclcpp::Node{
 
             cp_log_.open("cp_log.csv");
             cp_log_ << "time," << "x," << "y\n";
+
+            diag_log_.open("cp_diag.csv");
+            diag_log_ << "time,x_x,x_y,xdot_x,xdot_y,xi_x,xi_y,fd_x,fd_y\n";
+
+            step_log_.open("step_log");
+            step_log_ << "time,xi_x,xi_y,step_x,step_y,des_x,des_y,des_z,act_x,act_y,act_z,err_vert,switched\n";
         }
 
-        ~CP_Node() {cp_log_.close(); }
+        ~CP_Node() {cp_log_.close(); diag_log_.close(); step_log_.close(); }
 
 
     private:
@@ -65,16 +72,29 @@ class CP_Node : public rclcpp::Node{
         capturepoint::CapturePoint cp_;
 
         std::ofstream cp_log_;
+        std::ofstream diag_log_;
+        std::ofstream step_log_;
+
+        Eigen::Vector3d com_prev_ = Eigen::Vector3d::Zero();
+        double t_prev_ = 0.0;
+        bool have_prev_ = false;
 
         bool map_built_ = false;
         bool base_ready_ = false;
 
         std::unordered_map<std::string, int> joint_map_;
 
-        double T_ = 0.15;
-        double T_max_ = 3.0 * T_;
+        double T_ = 0.3;
+        double T_max_ = 1.5 * T_;
+        double reach_warn_ = 0.4;
+        double reach_max_ = 0.5;
+        double speedup_ = 2.0;
+        double swing_frac_ = 0.8;
+        double t_land_ = swing_frac_ * T_;
 
-        double height_ = -0.475;
+        double height_ = 0.475;
+
+        double dy_rocking_ = 0.1;
 
         double ground_z_ = 0.0;
         Eigen::Vector3d last_foothold_;
@@ -87,6 +107,11 @@ class CP_Node : public rclcpp::Node{
         Eigen::Vector3d stance_anchor_w_;   // planted stance foot world position
         double t_swing_ = 0.0;              // current time in swing
         bool initialized_ = false;          // first-step anchors set?
+
+        Eigen::Vector2d x_dot_prev_ = Eigen::Vector2d::Zero();
+        Eigen::Vector2d x_ddot_filt_ = Eigen::Vector2d::Zero();
+        double t_prev_a_ = 0.0;
+        bool have_prev_a_ = false;
 
 
         // MuJoCo base body frame -> URDF base_link (leg) frame.
@@ -161,14 +186,17 @@ class CP_Node : public rclcpp::Node{
             Eigen::Vector3d com = model_->comPosition();
             Eigen::Vector3d com_v = model_->comVelocity();
             Eigen::Vector3d p_stance_w = model_->footPose(stance_).translation();
-            Eigen::Vector2d x = (com - p_stance_w).head<2>(); // CoM position in foot frame
-            Eigen::Vector2d x_dot = com_v.head<2>(); // CoM vel in foot frame
-            
+            // Position from the true CoM (removes the ~8 cm base-origin lateral bias);
+            // velocity from the torso (clean, no swing-leg momentum spikes).
+            Eigen::Vector2d x = (com - p_stance_w).head<2>();       // CoM position rel. stance foot
+            Eigen::Vector2d x_dot = state_.base_lin_vel.head<2>();  // torso velocity
+            // omega uses the CoM height ABOVE the stance foot, not absolute world z.
+            // Guard: if the CoM drops to/below the foot (a fall), sqrt(g/h) -> NaN and
+            // poisons the whole pipeline, so clamp the height to a positive minimum.
+            cp_.set_height(std::max(com.z() - p_stance_w.z(), 0.15));
             // --- CHECKPOINT: verify the stance-frame state reads correctly ---
-            // RCLCPP_INFO(get_logger(),
-            //     "CoM height=%.3f | x=[%.3f %.3f] | x_dot=[%.3f %.3f]",
-            //     com.z() - p_stance_w.z(), x.x(), x.y(), x_dot.x(), x_dot.y());
-
+            
+            // RCLCPP_INFO(get_logger(), "Height: %.3f", com.z()-p_stance_w.z());
             // first-step init: anchor the current stance foot + swing liftoff before any transition
             if (!initialized_) {
                 stance_anchor_w_ = p_stance_w;
@@ -179,12 +207,43 @@ class CP_Node : public rclcpp::Node{
             }
 
             // --- foothold ---
-            Eigen::Vector2d xi     = cp_.compute_cp(x, x_dot);
-            Eigen::Vector2d xi_eos = cp_.predict_eos(xi, Eigen::Vector2d::Zero(), T_, t_swing_);
-            Eigen::Vector2d step   = cp_.step_location(xi_eos, x_dot_des_.head<2>(), T_);
+            // Eigen::Vector2d xi     = cp_.compute_cp(x, x_dot);
+            // Eigen::Vector2d xi_eos = cp_.predict_eos(xi, Eigen::Vector2d::Zero(), T_, t_swing_);
+
+            // // --- capture-point diagnostics: decompose xi and validate comVelocity() ---
+            double t_now = this->get_clock()->now().seconds();
+
+
+            Eigen::Vector2d xi = cp_.compute_cp(x, x_dot);
+            double w = cp_.get_omega();
+
+            // Measured torso acceleration = low-pass-filtered finite-diff of x_dot
+            // (matches the reference's ddx_com; NOT the analytic w^2*x, which cancels x).
+            if (have_prev_a_ && (t_now - t_prev_a_) > 1e-6) {
+                Eigen::Vector2d a_raw = (x_dot - x_dot_prev_) / (t_now - t_prev_a_);
+                double alpha = 0.85;   // 0..1, higher = smoother / more lag
+                x_ddot_filt_ = alpha * x_ddot_filt_ + (1.0 - alpha) * a_raw;
+            }
+            x_dot_prev_ = x_dot;
+            t_prev_a_ = t_now;
+            have_prev_a_ = true;
+
+            Eigen::Vector2d x_dot_des = x_dot_des_.head<2>();
+            // x_dot_des.y() += (stance_ == legs::Side::Right) ? -dy_rocking_ : dy_rocking_;
+
+            Eigen::Vector2d step = cp_.compute_px(x, x_dot, x_ddot_filt_, x_dot_des);
+
+            // if (stance_ == legs::Side::Right) step.y() = std::clamp(step.y(), 0.15, 0.3);
+            // else step.y() = std::clamp(step.y(), -0.3, -0.15);
+
+            step.x() = std::clamp(step.x(), -0.2, 0.3);
 
             // --- swing foot target: trajectory (stance frame) -> world -> leg frame ---
-            Eigen::Vector3d swing_pos  = cp_.swing_trajectory(T_, t_swing_, p_start_, step, 0.1);
+            // Eigen::Vector3d swing_pos  = cp_.swing_trajectory(T_, t_swing_, p_start_, step, 0.1);
+
+            Eigen::Vector3d swing_pos;
+            swing_pos.head<2>() = step;
+            swing_pos.z() = cp_.swing_height(t_swing_, T_, 0.05);
             Eigen::Vector3d swing_world;
             swing_world.head<2>() = swing_pos.head<2>() + p_stance_w.head<2>();
             swing_world.z() = ground_z_ + swing_pos.z();
@@ -259,19 +318,32 @@ class CP_Node : public rclcpp::Node{
             Eigen::Vector3d foothold_world;
             foothold_world.head<2>() = step + p_stance_w.head<2>();
             foothold_world.z() = p_stance_w.z();
-            double err = (swing_actual - foothold_world).norm();
-
+            double err_planar = (swing_actual.head<2>() - foothold_world.head<2>()).norm();
+            double err_vert = (swing_actual.z() - foothold_world.z());
+            
             // --- advance the step clock; transition when the step completes ---
-           
-            if (t_swing_ >= T_ && err < 0.05) {
+            bool reached  = (t_swing_ >= T_ && err_planar < 0.05 && err_vert < 0.005);
+            bool max_time = (t_swing_ >= T_max_);
+            bool switched = reached || max_time;
+
+            step_log_ << std::fixed << std::setprecision(6)
+                << t << ","
+                << xi.x()           << "," << xi.y()           << ","
+                << step.x()         << "," << step.y()         << ","
+                << swing_world.x()  << "," << swing_world.y()  << "," << swing_world.z()  << ","   // des = live commanded target
+                << swing_actual.x() << "," << swing_actual.y() << "," << swing_actual.z() << ","
+                << err_vert         << ","
+                << (switched ? 1 : 0) << "\n";
+
+            if (reached) {
                 RCLCPP_INFO(get_logger(), "Reached pos");
                 switch_stance();
             }
-            else if (t_swing_ >= T_max_) {
+            else if (max_time) {
                 RCLCPP_INFO(get_logger(), "Max Time");
                 switch_stance();
             }
-            
+
             t_swing_ += 0.025;
         }
 

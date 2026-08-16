@@ -21,7 +21,7 @@ using namespace std::chrono_literals;
 
 class Torque_Node : public rclcpp::Node{
     public:
-        Torque_Node() : Node("torque_node"), robot_(), z_target_(0.475){
+        Torque_Node() : Node("torque_node"), robot_(), z_target_(0.495){
             publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/effort_controller/commands", 10);
             p_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>("/foot_pos", 10, std::bind(&Torque_Node::IK_callback, this, std::placeholders::_1));
             js_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&Torque_Node::js_callback, this, std::placeholders::_1));

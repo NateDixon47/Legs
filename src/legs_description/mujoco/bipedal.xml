@@ -25,7 +25,7 @@
     <!-- Free-floating base (torso). The freejoint gives it 6 DOF so it falls/moves
          under gravity. Spawn height ~0.55 m so the feet start near a future z=0 floor
          (tune when the ground plane is added). Inertial = body_link from the URDF. -->
-    <body name="base" pos="0 0 0.497">
+    <body name="base" pos="0 0 0.475">
 
       <!-- Base DOF mode (pick one):
            PLANAR (sagittal x-z): the 3 joints below — robot moves/falls only fore-aft + pitch.

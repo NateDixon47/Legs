@@ -21,7 +21,7 @@ using namespace std::chrono_literals;
 
 class controller_node : public rclcpp::Node{
     public:
-        controller_node() : Node("controller_node"), robot_(), z_target_(0.5), stance_(legs::Side::Right){
+        controller_node() : Node("controller_node"), robot_(), z_target_(0.475), stance_(legs::Side::Right){
             publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/effort_controller/commands", 10);
             p_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>("/foot_pos", 10, std::bind(&controller_node::IK_callback, this, std::placeholders::_1));
             js_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&controller_node::js_callback, this, std::placeholders::_1));
@@ -30,6 +30,7 @@ class controller_node : public rclcpp::Node{
                  [this](const std_msgs::msg::Int32 &msg) {
                     stance_ = (msg.data == 0) ? legs::Side::Left : legs::Side::Right;
                     log_stance_ = (stance_ == legs::Side::Left) ? 0 : 1;
+                    q_dot_des_.setZero();   // drop stale swing-velocity FF on stance switch
                     });
 
             std::string mjcf = this->declare_parameter<std::string>("mjcf_path", "");
@@ -44,6 +45,7 @@ class controller_node : public rclcpp::Node{
             height_log_file_.open("height_log.csv");
             rotation_log_file_.open("rot_log.csv");
             posture_err_log_file_.open("posture_e.csv");
+            force_log_.open("force_log.csv");
 
             //header
             log_file_ << "time," << "left_hip_yaw," << "left_hip_pitch," << "left_knee,"
@@ -56,6 +58,7 @@ class controller_node : public rclcpp::Node{
             height_log_file_ << "time," << "torso_height," << "desired_height\n";
             rotation_log_file_ << "time," << "roll," << "pitch," << "yaw," << "roll_d," << "pitch_d," << "yaw_d\n";
             posture_err_log_file_ << "time," << "roll_e," << "pitch_e," << "yaw_e\n"; 
+            force_log_ << "time," << "Fx," << "Fy," << "Fz\n";
         }
 
         ~controller_node() { log_file_.close(); q_log_file_.close(); height_log_file_.close(); rotation_log_file_.close(); posture_err_log_file_.close(); }
@@ -76,6 +79,17 @@ class controller_node : public rclcpp::Node{
                 RCLCPP_WARN(this->get_logger(), "IK: No solution for one or both foot targets");
                 return;
             }
+
+            // Velocity feedforward (Approach B): implied joint velocity from the change in
+            // q_des over the /foot_pos interval (NOT the 2 ms loop dt), low-pass filtered.
+            double now = this->now().seconds();
+            double dt = now - t_last_fp_;
+            if (have_last_fp_ && dt > 1e-3) {
+                Eigen::VectorXd qd = (*q_des - q_des_) / dt;         // q_des_ still holds the old target
+                q_dot_des_ = alpha_fp_ * q_dot_des_ + (1.0 - alpha_fp_) * qd;
+            }
+            t_last_fp_ = now;
+            have_last_fp_ = true;
 
             q_des_ = *q_des;
 
@@ -105,11 +119,47 @@ class controller_node : public rclcpp::Node{
             const int stance0 = (stance_ == legs::Side::Left) ? 0 : 3;
             const int swing0 = (stance_ == legs::Side::Left) ? 3 : 0;
 
-            // Height controller
-            double foot_z = model_->footPose(stance_).translation().z();
-            double torso_z = state_.base_pose.translation().z() - foot_z;
-            double base_vel_z = state_.base_lin_vel.z();
-            F.z() += Kp_h_ * (z_target_ - torso_z) - Kd_h_ * base_vel_z;
+            // --- stance-foot force feedback ---------------------------------
+            // F is the ground-reaction force the stance foot applies to the body,
+            // in the world frame (+z up), same convention as the height controller.
+            // p_base is the CoM proxy (the CoM sits in the torso); we regulate it
+            // relative to the stance foot.
+            Eigen::Vector3d p_foot = model_->footPose(stance_).translation();
+            Eigen::Vector3d p_base = state_.base_pose.translation();
+            Eigen::Vector3d v_base = state_.base_lin_vel;
+
+            // Vertical: hold torso height above the stance foot.
+            double torso_z = p_base.z() - p_foot.z();
+            F.z() += Kp_h_ * (z_target_ - torso_z) - Kd_h_ * v_base.z();
+
+            // F.z() = std::clamp(F.z(), 0.0, 200.0);
+
+            // Horizontal (ankle / CoP strategy): push the CoM back over the stance
+            // foot to fight the inverted-pendulum divergence. The restoring GRF
+            // opposes horizontal CoM offset (Kp_xy_) and CoM velocity (Kd_xy_).
+            // This offloads the stepping controller for small disturbances; its
+            // authority is bounded by the friction cone (clamped below) and
+            // physically by the foot size (CoP can't leave the foot).
+            // F.x() += -Kp_xy_ * (p_base.x() - p_foot.x()) - Kd_xy_ * v_base.x();
+            // F.y() += -Kp_xy_ * (p_base.y() - p_foot.y()) - Kd_xy_ * v_base.y();
+
+            // Keep the horizontal force inside the friction cone |F_xy| <= mu*F_z
+            // (scale x,y together to preserve direction) so the foot doesn't slip.
+            double f_xy_max = mu_ * std::max(F.z(), 0.0);
+            double f_xy = std::hypot(F.x(), F.y());
+            // if (f_xy > f_xy_max && f_xy > 1e-9) {
+            //     double scale = f_xy_max / f_xy;
+            //     F.x() *= scale;
+            //     F.y() *= scale;
+            // }
+
+            force_log_ 
+                << std::fixed << std::setprecision(6)
+                << t << ","
+                << F.x() << ","
+                << F.y() << ","
+                << F.z() << "\n";
+
 
             height_log_file_
                 << std::fixed << std::setprecision(6)
@@ -180,7 +230,7 @@ class controller_node : public rclcpp::Node{
 
             for (int k = 0; k<3; k++) {
                 int i = swing0 + k;
-                tau(i) = tau_g(i) + Kp_ * (q_des_(i) - q(i)) + Kd_ * (-q_dot(i));
+                tau(i) = tau_g(i) + Kp_ * (q_des_(i) - q(i)) + Kd_ * (q_dot_des_(i) - q_dot(i));
             }
 
             q_log_file_
@@ -325,6 +375,11 @@ class controller_node : public rclcpp::Node{
 
         Eigen::VectorXd q_des_ = Eigen::VectorXd::Zero(6);
 
+        // Velocity feedforward (Approach B): filtered finite-diff of q_des at the /foot_pos rate.
+        Eigen::VectorXd q_dot_des_ = Eigen::VectorXd::Zero(6);
+        double t_last_fp_ = 0.0;
+        bool have_last_fp_ = false;
+        double alpha_fp_ = 0.7;   // low-pass on the FF velocity (higher = smoother/more lag)
 
         bool map_built_ = false;
         bool base_ready_ = false;
@@ -335,13 +390,21 @@ class controller_node : public rclcpp::Node{
             "right_hip_yaw", "right_hip_pitch", "right_knee"
         };
 
-        double Kp_ {10.0};
+        double Kp_ {25.0};
         double Kd_ {1.0};
+
         double tau_max_ {60.0};
 
-        double Kp_h_ {5000.0};
-        double Kd_h_ {500.0};
+        double Kp_h_ {2000.0}; // 2000
+        double Kd_h_ {300.0}; // 300
         double z_target_;
+
+        // Horizontal stance-foot (ankle/CoP) gains — start gentle and tune up
+        // while watching for foot slip/tip. mu_ = friction-cone limit.
+        double Kp_xy_ {400.0};
+        double Kd_xy_ {25.0};
+        double mu_ {0.8};
+
         double Kp_o_ {400.0};
         double Kd_o_ {10.0};
 
@@ -361,6 +424,7 @@ class controller_node : public rclcpp::Node{
         std::ofstream rotation_log_file_;
         std::ofstream height_log_file_;
         std::ofstream posture_err_log_file_;
+        std::ofstream force_log_;
 
 };
 

@@ -145,7 +145,7 @@ def launch_setup(context, *args, **kwargs):
             ExecuteProcess(
                 cmd=[
                     "ros2", "bag", "record",
-                    "-o", os.path.expanduser(f"~/legs_ws/bags/run_{stamp}"),
+                    "-o", os.path.expanduser(f"~/legs_ws/bags/run_latest"),
                     "/tf", "/tf_static", "/joint_states", "/clock", "/robot_description",
                     "/simulator/floating_base_state",
                     "/capture_point", "/left_foot", "/foot_pos", "/stance",

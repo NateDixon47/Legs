@@ -4,12 +4,13 @@
 #include <array>
 #include <vector>
 #include <cmath>
+#include <algorithm>
 
 namespace capturepoint {
 
 class CapturePoint {
     public:
-        CapturePoint() : K_(1.0),  height_(0.5){}
+        CapturePoint() : K_(2.0),  height_(0.475){}
 
         Eigen::Vector2d compute_cp(const Eigen::Vector2d &x, const Eigen::Vector2d &x_dot) {
             return x + x_dot/w_;
@@ -24,15 +25,31 @@ class CapturePoint {
             return xi - (xi_dot/w_) + K_*(xi-xi_des);
         }
 
+        // Adaptive sine swing-height profile (port of the reference sin_adapt).
+        //   t   : time since liftoff        T  : swing duration
+        //   hs  : target apex clearance     h0 : liftoff height rel. to the landing point
+        // Rises from h0 to the apex at tau=0.5, then descends to 0 (touchdown) at tau=1.
+        // h_m = max(1.1*h0, hs) guarantees real lift even on a big step down; with the
+        // default h0=0 (flat ground) this reduces to a symmetric sine arc of height hs.
+        double swing_height(double t, double T, double hs, double h0 = 0.0) {
+            double tau = std::clamp(t / T, 0.0, 1.0);
+            double h_m = std::max(1.1 * h0, hs);
+            double h_tau;
+            if (tau < 0.5) {
+                h_tau = (h_m - h0) * std::sin(M_PI * tau) + h0;   // rise: h0 -> apex
+            } else {
+                h_tau = h_m * std::sin(M_PI * tau);               // descend: apex -> 0
+            }
+            return h_tau;
+        }
+
         Eigen::Vector3d swing_trajectory(double T, double t_swing, Eigen::Vector2d p_start, Eigen::Vector2d p_des, double step_height) {
-            double s = std::min(t_swing / T, 1.0);
+            // Horizontal: track the foothold directly from the start (no interpolation).
+            double px = p_des[0];
+            double py = p_des[1];
 
-            // Horizontal position
-            double px = p_start[0] + std::pow(s, 2) * (3-2*s) * (p_des[0] - p_start[0]);
-            double py = p_start[1] + std::pow(s, 2) * (3-2*s) * (p_des[1] - p_start[1]);
-
-            // Vertical position
-            double pz = 4 * step_height * s * (1-s);
+            // Vertical: adaptive sine profile; touchdown (pz=0) at t_swing = T.
+            double pz = swing_height(t_swing, T, step_height);
 
             return {px, py, pz};
         }
@@ -51,6 +68,8 @@ class CapturePoint {
             w_ = std::sqrt(9.81/height_);
         }
 
+        double get_omega() { return w_; }
+
         void switch_stance() {side_ = side_ * -1;}
 
 
@@ -58,7 +77,7 @@ class CapturePoint {
         double height_;
         double w_ = std::sqrt(9.81/height_);
         float K_;
-        double leg_offset_ = 0.1; // left and right leg offset for step
+        double leg_offset_ = 0.0; // left and right leg offset for step
         int side_ = 1;
 
 };
