@@ -37,7 +37,7 @@
       <freejoint name="base_free"/>
 
 
-      <inertial pos="-0.00011 0.11488 -0.04551" mass="7.13137"
+      <inertial pos="-0.00011 0.0 -0.04551" mass="7.13137"
                 fullinertia="0.081061 0.106576 0.129409 0.000089 -0.000051 -0.022384"/>
       <geom pos="0 0 0" quat="0.499998 0.5 0.500002 0.5" type="mesh" rgba="0 0 0.8 1" mesh="body_v3_urdf"/>
     <body name="left_hip_connector_link" pos="-0.0125004 0.125 0.02088" quat="-3.89602e-06 -1.29867e-06 0.707107 0.707107">

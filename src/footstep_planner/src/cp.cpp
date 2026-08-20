@@ -16,6 +16,7 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "visualization_msgs/msg/marker.hpp"
 #include "std_msgs/msg/int32.hpp"
+#include "std_msgs/msg/float64.hpp"
 
 #include <fstream>
 #include <iomanip>
@@ -40,6 +41,7 @@ class CP_Node : public rclcpp::Node{
             cp_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("/capture_point", 10);
             lf_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("/left_foot", 10);
             stance_pub_ = this->create_publisher<std_msgs::msg::Int32>("/stance", 10);
+            swing_vel_pub_ = this->create_publisher<std_msgs::msg::Float64>("/swing_vel", 10);
 
             cp_log_.open("cp_log.csv");
             cp_log_ << "time," << "x," << "y\n";
@@ -65,6 +67,7 @@ class CP_Node : public rclcpp::Node{
         rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr lf_pub_;
 
         rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr stance_pub_;
+        rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr swing_vel_pub_;
         
         Eigen::Vector3d x_dot_des_ {0.0, 0.0, 0.0};
         std::unique_ptr<dynamics::RobotModel> model_; 
@@ -84,8 +87,8 @@ class CP_Node : public rclcpp::Node{
 
         std::unordered_map<std::string, int> joint_map_;
 
-        double T_ = 0.3;
-        double T_max_ = 1.5 * T_;
+        double T_ = 0.25;
+        double T_max_ = 2.0 * T_;
         double reach_warn_ = 0.4;
         double reach_max_ = 0.5;
         double speedup_ = 2.0;
@@ -95,6 +98,7 @@ class CP_Node : public rclcpp::Node{
         double height_ = 0.475;
 
         double dy_rocking_ = 0.1;
+        double b_lat_ = 0.0;   // lateral swing-foot offset (outward, alternating) for frontal-plane balance
 
         double ground_z_ = 0.0;
         Eigen::Vector3d last_foothold_;
@@ -233,6 +237,14 @@ class CP_Node : public rclcpp::Node{
 
             Eigen::Vector2d step = cp_.compute_px(x, x_dot, x_ddot_filt_, x_dot_des);
 
+            // Lateral foot-placement offset: place the swing foot a stance half-width
+            // OUTSIDE the CoM, alternating by swing side, to create the frontal-plane
+            // limit cycle. compute_px alone steps at the lateral CoM -> neutral/drift;
+            // the outward offset is what bounces the CoM back. +y = left, so the
+            // left swing foot gets +b_lat_, the right swing foot gets -b_lat_.
+            double side = (swing_ == legs::Side::Left) ? 1.0 : -1.0;
+            // step.y() += side * b_lat_;
+
             // if (stance_ == legs::Side::Right) step.y() = std::clamp(step.y(), 0.15, 0.3);
             // else step.y() = std::clamp(step.y(), -0.3, -0.15);
 
@@ -243,7 +255,15 @@ class CP_Node : public rclcpp::Node{
 
             Eigen::Vector3d swing_pos;
             swing_pos.head<2>() = step;
-            swing_pos.z() = cp_.swing_height(t_swing_, T_, 0.05);
+            // swing_pos.z() = cp_.swing_height(t_swing_, T_, 0.05);
+            Eigen::Vector2d swing_traj = cp_.swing_height(t_swing_, T_, 0.05);
+            swing_pos.z() = swing_traj[0];
+            
+            // Publish swing foot velocity
+            std_msgs::msg::Float64 swing_vel_msg;
+            swing_vel_msg.data = swing_traj[1];
+            swing_vel_pub_->publish(swing_vel_msg);
+
             Eigen::Vector3d swing_world;
             swing_world.head<2>() = swing_pos.head<2>() + p_stance_w.head<2>();
             swing_world.z() = ground_z_ + swing_pos.z();
@@ -322,7 +342,7 @@ class CP_Node : public rclcpp::Node{
             double err_vert = (swing_actual.z() - foothold_world.z());
             
             // --- advance the step clock; transition when the step completes ---
-            bool reached  = (t_swing_ >= T_ && err_planar < 0.05 && err_vert < 0.005);
+            bool reached  = (t_swing_ >= T_ && err_planar < 0.075 && err_vert < 0.005);
             bool max_time = (t_swing_ >= T_max_);
             bool switched = reached || max_time;
 
@@ -339,10 +359,10 @@ class CP_Node : public rclcpp::Node{
                 RCLCPP_INFO(get_logger(), "Reached pos");
                 switch_stance();
             }
-            else if (max_time) {
-                RCLCPP_INFO(get_logger(), "Max Time");
-                switch_stance();
-            }
+            // else if (max_time) {
+            //     RCLCPP_INFO(get_logger(), "Max Time");
+            //     switch_stance();
+            // }
 
             t_swing_ += 0.025;
         }

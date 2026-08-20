@@ -12,6 +12,7 @@
 #include "utilities/robot_state.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "std_msgs/msg/int32.hpp"
+#include "std_msgs/msg/float64.hpp"
 
 #include <fstream>
 #include <iomanip>
@@ -21,7 +22,7 @@ using namespace std::chrono_literals;
 
 class controller_node : public rclcpp::Node{
     public:
-        controller_node() : Node("controller_node"), robot_(), z_target_(0.475), stance_(legs::Side::Right){
+        controller_node() : Node("controller_node"), robot_(), z_target_(0.45), stance_(legs::Side::Right){
             publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/effort_controller/commands", 10);
             p_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>("/foot_pos", 10, std::bind(&controller_node::IK_callback, this, std::placeholders::_1));
             js_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&controller_node::js_callback, this, std::placeholders::_1));
@@ -32,6 +33,8 @@ class controller_node : public rclcpp::Node{
                     log_stance_ = (stance_ == legs::Side::Left) ? 0 : 1;
                     q_dot_des_.setZero();   // drop stale swing-velocity FF on stance switch
                     });
+
+            swing_vel_sub_ = this->create_subscription<std_msgs::msg::Float64>("/swing_vel", 10, std::bind(&controller_node::swing_vel_callback, this, std::placeholders::_1));
 
             std::string mjcf = this->declare_parameter<std::string>("mjcf_path", "");
             model_ = std::make_unique<dynamics::RobotModel>(mjcf);
@@ -82,14 +85,14 @@ class controller_node : public rclcpp::Node{
 
             // Velocity feedforward (Approach B): implied joint velocity from the change in
             // q_des over the /foot_pos interval (NOT the 2 ms loop dt), low-pass filtered.
-            double now = this->now().seconds();
-            double dt = now - t_last_fp_;
-            if (have_last_fp_ && dt > 1e-3) {
-                Eigen::VectorXd qd = (*q_des - q_des_) / dt;         // q_des_ still holds the old target
-                q_dot_des_ = alpha_fp_ * q_dot_des_ + (1.0 - alpha_fp_) * qd;
-            }
-            t_last_fp_ = now;
-            have_last_fp_ = true;
+            // double now = this->now().seconds();
+            // double dt = now - t_last_fp_;
+            // if (have_last_fp_ && dt > 1e-3) {
+            //     Eigen::VectorXd qd = (*q_des - q_des_) / dt;         // q_des_ still holds the old target
+            //     q_dot_des_ = alpha_fp_ * q_dot_des_ + (1.0 - alpha_fp_) * qd;
+            // }
+            // t_last_fp_ = now;
+            // have_last_fp_ = true;
 
             q_des_ = *q_des;
 
@@ -170,8 +173,6 @@ class controller_node : public rclcpp::Node{
             tau_g = g.bottomRows<6>() - Jt.bottomRows<6>() * F;
             // tau_g = g.tail<6>();
 
-            // RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 100, "F=[%.1f, %.1f, %.1f] tau_g hip_y=%.1f hip_p=%.1f knee=%.1f", F.x(), F.y(), F.z(), tau_g(3), tau_g(4), tau_g(5));
-            // RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 100, "Height: %.4f", torso_z);
 
             if (!have_q_des_prev_) {
                 q_des_prev_ = q_des_;
@@ -227,6 +228,11 @@ class controller_node : public rclcpp::Node{
             q_des_prev_ = q_des_;
             // tau = Kp_ * (q_des_ - q) + Kd_ * (q_dot_des - q_dot) + tau_g;
             tau = tau_g;
+
+            legs::Side swing_side = (stance_ == legs::Side::Left) ? legs::Side::Right : legs::Side::Left;
+            Eigen::Vector3d v_foot(0.0, 0.0, swing_vel_z_); //swing_vel_z_
+            Eigen::Matrix3d Jsw = model_->footJacobian(swing_side).block<3,3>(0, 6 + swing0);
+            q_dot_des_.segment<3>(swing0) = Jsw.completeOrthogonalDecomposition().solve(v_foot);
 
             for (int k = 0; k<3; k++) {
                 int i = swing0 + k;
@@ -361,6 +367,10 @@ class controller_node : public rclcpp::Node{
             base_ready_ = true;
         }
 
+        void swing_vel_callback(const std_msgs::msg::Float64 &msg) {
+            swing_vel_z_ = msg.data;
+        }
+
         Eigen::VectorXd last_target_ = Eigen::VectorXd::Zero(6);
         bool have_target_ = false;
 
@@ -369,6 +379,7 @@ class controller_node : public rclcpp::Node{
         rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr js_subscriber_;
         rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
         rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr stance_sub_;
+        rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr swing_vel_sub_;
 
         std::unique_ptr<dynamics::RobotModel> model_;
         robot::RobotState state_;
@@ -377,6 +388,8 @@ class controller_node : public rclcpp::Node{
 
         // Velocity feedforward (Approach B): filtered finite-diff of q_des at the /foot_pos rate.
         Eigen::VectorXd q_dot_des_ = Eigen::VectorXd::Zero(6);
+        double swing_vel_z_ = 0.0;
+
         double t_last_fp_ = 0.0;
         bool have_last_fp_ = false;
         double alpha_fp_ = 0.7;   // low-pass on the FF velocity (higher = smoother/more lag)
@@ -390,7 +403,7 @@ class controller_node : public rclcpp::Node{
             "right_hip_yaw", "right_hip_pitch", "right_knee"
         };
 
-        double Kp_ {25.0};
+        double Kp_ {30.0};
         double Kd_ {1.0};
 
         double tau_max_ {60.0};

@@ -31,28 +31,32 @@ class CapturePoint {
         // Rises from h0 to the apex at tau=0.5, then descends to 0 (touchdown) at tau=1.
         // h_m = max(1.1*h0, hs) guarantees real lift even on a big step down; with the
         // default h0=0 (flat ground) this reduces to a symmetric sine arc of height hs.
-        double swing_height(double t, double T, double hs, double h0 = 0.0) {
+        Eigen::Vector2d swing_height(double t, double T, double hs, double h0 = 0.0) {
             double tau = std::clamp(t / T, 0.0, 1.0);
             double h_m = std::max(1.1 * h0, hs);
-            double h_tau;
+            double h_tau, vel_des;
+            Eigen::Vector2d output;
             if (tau < 0.5) {
                 h_tau = (h_m - h0) * std::sin(M_PI * tau) + h0;   // rise: h0 -> apex
+                vel_des = (h_m - h0) * (M_PI / T) * std::cos(M_PI*tau);
             } else {
                 h_tau = h_m * std::sin(M_PI * tau);               // descend: apex -> 0
+                vel_des = h_m * (M_PI / T) * std::cos(M_PI*tau);
             }
-            return h_tau;
+            output = {h_tau, vel_des};
+            return output;
         }
 
-        Eigen::Vector3d swing_trajectory(double T, double t_swing, Eigen::Vector2d p_start, Eigen::Vector2d p_des, double step_height) {
-            // Horizontal: track the foothold directly from the start (no interpolation).
-            double px = p_des[0];
-            double py = p_des[1];
+        // Eigen::Vector3d swing_trajectory(double T, double t_swing, Eigen::Vector2d p_start, Eigen::Vector2d p_des, double step_height) {
+        //     // Horizontal: track the foothold directly from the start (no interpolation).
+        //     double px = p_des[0];
+        //     double py = p_des[1];
 
-            // Vertical: adaptive sine profile; touchdown (pz=0) at t_swing = T.
-            double pz = swing_height(t_swing, T, step_height);
+        //     // Vertical: adaptive sine profile; touchdown (pz=0) at t_swing = T.
+        //     double pz = swing_height(t_swing, T, step_height);
 
-            return {px, py, pz};
-        }
+        //     return {px, py, pz};
+        // }
 
         Eigen::Vector2d predict_eos(Eigen::Vector2d xi, Eigen::Vector2d p_stance, double T, double t_swing) {
             return p_stance + (xi - p_stance) * std::exp(w_*(T-t_swing));
@@ -77,7 +81,7 @@ class CapturePoint {
         double height_;
         double w_ = std::sqrt(9.81/height_);
         float K_;
-        double leg_offset_ = 0.0; // left and right leg offset for step
+        double leg_offset_ = 0.25; // left and right leg offset for step
         int side_ = 1;
 
 };
