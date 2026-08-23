@@ -24,7 +24,7 @@ class controller_node : public rclcpp::Node{
     public:
         controller_node() : Node("controller_node"), robot_(), z_target_(0.45), stance_(legs::Side::Right){
             publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/effort_controller/commands", 10);
-            p_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>("/foot_pos", 10, std::bind(&controller_node::IK_callback, this, std::placeholders::_1));
+            p_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>("/foot_pos", 10, std::bind(&controller_node::foot_pos_callback, this, std::placeholders::_1));
             js_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&controller_node::js_callback, this, std::placeholders::_1));
             odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("/simulator/floating_base_state", 10, std::bind(&controller_node::odom_callback, this, std::placeholders::_1));
             stance_sub_ = this->create_subscription<std_msgs::msg::Int32>("/stance", 10,
@@ -98,6 +98,14 @@ class controller_node : public rclcpp::Node{
 
             last_target_ << p_left, p_right;     // remember what we commanded, for the FK check
             have_target_ = true;
+        }
+
+        void foot_pos_callback(const std_msgs::msg::Float64MultiArray &msg) {
+            if (msg.data.size() < 6) return;
+            // Pick the SWING leg's world-frame target (opposite of stance).
+            if (stance_ == legs::Side::Left) { p_des_ = Eigen::Vector3d{msg.data[3], msg.data[4], msg.data[5]}; }
+            else { p_des_ = Eigen::Vector3d{msg.data[0], msg.data[1], msg.data[2]}; }
+            have_p_des_ = true;
         }
 
         void stance_control() {
@@ -229,15 +237,22 @@ class controller_node : public rclcpp::Node{
             // tau = Kp_ * (q_des_ - q) + Kd_ * (q_dot_des - q_dot) + tau_g;
             tau = tau_g;
 
+            // --- task-space (Cartesian) swing-foot control ---------------------
+            // Regulate the swing foot's WORLD position/velocity directly, then map the
+            // Cartesian force to swing-joint torques with J^T (no IK, no J^-1, no leak).
             legs::Side swing_side = (stance_ == legs::Side::Left) ? legs::Side::Right : legs::Side::Left;
-            Eigen::Vector3d v_foot(0.0, 0.0, swing_vel_z_); //swing_vel_z_
-            Eigen::Matrix3d Jsw = model_->footJacobian(swing_side).block<3,3>(0, 6 + swing0);
-            q_dot_des_.segment<3>(swing0) = Jsw.completeOrthogonalDecomposition().solve(v_foot);
 
-            for (int k = 0; k<3; k++) {
-                int i = swing0 + k;
-                tau(i) = tau_g(i) + Kp_ * (q_des_(i) - q(i)) + Kd_ * (q_dot_des_(i) - q_dot(i));
-            }
+            Eigen::Vector3d p_foot_sw = model_->footPose(swing_side).translation();            // actual foot pos (world)
+            Eigen::Matrix3d Jsw = model_->footJacobian(swing_side).block<3,3>(0, 6 + swing0);   // world, swing joints
+            Eigen::Vector3d qd_sw = q_dot.segment<3>(swing0);                                   // swing joint velocities
+            Eigen::Vector3d v_foot_sw = Jsw * qd_sw;                                            // actual foot vel (world)
+
+            // Hold the current foot position until the first target arrives (avoids a startup yank).
+            Eigen::Vector3d p_des = have_p_des_ ? p_des_ : p_foot_sw;
+            Eigen::Vector3d v_des(0.0, 0.0, swing_vel_z_);                                      // desired foot vel (world, z-only for now)
+
+            Eigen::Vector3d F_foot = Kp_s.cwiseProduct(p_des - p_foot_sw) + Kd_s.cwiseProduct(v_des - v_foot_sw);
+            tau.segment<3>(swing0) = tau_g.segment<3>(swing0) + Jsw.transpose() * F_foot;       // keep swing gravity comp
 
             q_log_file_
                 << std::fixed << std::setprecision(6)
@@ -385,6 +400,13 @@ class controller_node : public rclcpp::Node{
         robot::RobotState state_;
 
         Eigen::VectorXd q_des_ = Eigen::VectorXd::Zero(6);
+        Eigen::Vector3d p_des_ = Eigen::Vector3d::Zero();
+        bool have_p_des_ = false;
+        // double Kp_s {100.0};   // task-space swing-foot position gain [N/m]
+        // double Kd_s {1.0};     // task-space swing-foot velocity gain [N.s/m]
+        Eigen::Vector3d Kp_s {100.0, 50.0, 1000.0};
+        Eigen::Vector3d Kd_s {1.0, 3.0, 5.0};
+
 
         // Velocity feedforward (Approach B): filtered finite-diff of q_des at the /foot_pos rate.
         Eigen::VectorXd q_dot_des_ = Eigen::VectorXd::Zero(6);

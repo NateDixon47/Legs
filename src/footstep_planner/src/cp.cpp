@@ -276,9 +276,10 @@ class CP_Node : public rclcpp::Node{
             // --- stance foot: held at its fixed world anchor ---
             Eigen::Vector3d stance_leg = world_to_leg(stance_anchor_w_);
 
-            // --- pack by side (left = [0:3], right = [3:6]) and publish ---
-            Eigen::Vector3d left  = (stance_ == legs::Side::Left) ? stance_leg : swing_leg;
-            Eigen::Vector3d right = (stance_ == legs::Side::Left) ? swing_leg  : stance_leg;
+            // --- pack by side (left = [0:3], right = [3:6]) and publish, WORLD frame ---
+            // Task-space controller wants world-frame targets (matches footPose/footJacobian).
+            Eigen::Vector3d left  = (stance_ == legs::Side::Left) ? stance_anchor_w_ : swing_world;
+            Eigen::Vector3d right = (stance_ == legs::Side::Left) ? swing_world      : stance_anchor_w_;
             std_msgs::msg::Float64MultiArray msg;
             msg.data = {left.x(), left.y(), left.z(), right.x(), right.y(), right.z()};
             pos_publisher->publish(msg);
