@@ -61,9 +61,21 @@ class RobotModel {
     Eigen::Vector3d   comPosition() const;          // whole-body CoM, world frame
     Eigen::Isometry3d footPose(legs::Side) const;   // foot site pose, world frame
     Eigen::MatrixXd   footJacobian(legs::Side) const;  // dp_foot/dv     3 x nv
-    Eigen::Vector3d comVelocity() const; 
+    Eigen::Vector3d comVelocity() const;
 
     Eigen::MatrixXd footJacobianFull(legs::Side side) const;
+
+    // True when this foot is touching something (in practice, the floor).
+    //
+    // Reads the contacts mj_forward() already computed for the current state, so it
+    // costs nothing extra and needs no <sensor> block in the MJCF. Uses contact
+    // existence (a geometric test), not contact force — this model reconstructs state
+    // from joint feedback without the true actuator state, so its constraint forces
+    // are approximate while interpenetration is exact.
+    //
+    // SIM ONLY. On hardware this is replaced by a torque-residual estimator behind the
+    // same accessor, so callers must not depend on where the signal comes from.
+    bool inContact(legs::Side side) const;
 
  private:
     std::unique_ptr<mjModel, MjModelDeleter> model_;
@@ -72,6 +84,8 @@ class RobotModel {
     int base_body_id_ = -1;
     int left_foot_site_id_ = -1;
     int right_foot_site_id_ = -1;
+    int left_foot_body_id_ = -1;
+    int right_foot_body_id_ = -1;
 
     // qpos/qvel addresses of the 6 actuated joints, in joint_names_ order.
     std::array<int, 6> joint_qposadr_{};

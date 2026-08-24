@@ -116,12 +116,22 @@ def launch_setup(context, *args, **kwargs):
         )
 
     # Capture-point walking pipeline (always on):
-    #   cp_node -> /foot_pos -> ik_node -> /position_controller/commands
+    #   cp_node   -> /step      (planar foothold, stance-relative)
+    #   traj_node -> /foot_pos, /swing_vel, /stance  (owns the gait state)
+    #   controller_node -> /effort_controller/commands
     mjcf_path = PathJoinSubstitution([pkg, "mujoco", "scene.xml"]).perform(context)
     nodes.append(
         Node(
             package="legs_control",
             executable="controller_node",
+            parameters=[{"use_sim_time": True, "mjcf_path": mjcf_path}],
+            output="both",
+        )
+    )
+    nodes.append(
+        Node(
+            package="legs_control",
+            executable="traj_node",
             parameters=[{"use_sim_time": True, "mjcf_path": mjcf_path}],
             output="both",
         )

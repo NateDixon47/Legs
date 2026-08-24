@@ -34,6 +34,11 @@ RobotModel::RobotModel(const std::string& mjcf_path) {
     left_foot_site_id_ = mj_name2id(model_.get(), mjOBJ_SITE, "left_foot");
     right_foot_site_id_ = mj_name2id(model_.get(), mjOBJ_SITE, "right_foot");
 
+    // Distal leg bodies, used to attribute contacts to a leg. The foot geoms are
+    // unnamed in the MJCF, so contacts are matched by owning body instead.
+    left_foot_body_id_ = mj_name2id(model_.get(), mjOBJ_BODY, "left_tibia_link");
+    right_foot_body_id_ = mj_name2id(model_.get(), mjOBJ_BODY, "right_tibia_link");
+
     // Cache each actuated joint's qpos/qvel address so packing never hardcodes indices.
     for (std::size_t i = 0; i < kJointNames.size(); ++i) {
         int jid = mj_name2id(model_.get(), mjOBJ_JOINT, kJointNames[i].c_str());
@@ -179,6 +184,29 @@ Eigen::MatrixXd RobotModel::footJacobianFull(legs::Side side) const {
 Eigen::Vector3d RobotModel::comVelocity() const {
     mj_subtreeVel(model_.get(), data_.get());
     return Eigen::Map<const Eigen::Vector3d>(data_->subtree_linvel + 3 * base_body_id_);
+}
+
+bool RobotModel::inContact(legs::Side side) const {
+    const int body_id =
+        (side == legs::Side::Left) ? left_foot_body_id_ : right_foot_body_id_;
+    if (body_id == -1) {
+        throw std::runtime_error(
+            "foot body not found; expected 'left_tibia_link'/'right_tibia_link' in MJCF");
+    }
+
+    for (int i = 0; i < data_->ncon; ++i) {
+        const mjContact& c = data_->contact[i];
+        // mj_forward also lists pairs that are merely within the contact margin;
+        // dist <= 0 restricts this to geoms actually touching or interpenetrating.
+        if (c.dist > 0.0) {
+            continue;
+        }
+        if (model_->geom_bodyid[c.geom1] == body_id ||
+            model_->geom_bodyid[c.geom2] == body_id) {
+            return true;
+        }
+    }
+    return false;
 }
 
 }  // namespace dynamics

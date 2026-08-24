@@ -191,6 +191,44 @@ TEST(RobotModel, SetStateRobotStateAppliesVelocity) {
     EXPECT_LT((model.gravityForces() - gravity).norm(), 1e-9);
 }
 
+TEST(RobotModel, InContactIsFalseWithBothFeetInTheAir) {
+    dynamics::RobotModel model(kModelPath);
+    Eigen::Isometry3d base = Eigen::Isometry3d::Identity();
+    base.translation() = Eigen::Vector3d(0.0, 0.0, 1.0);
+    model.setState(base, Eigen::VectorXd::Zero(6));
+
+    // Sanity: both feet really are well clear of the z=0 floor plane.
+    ASSERT_GT(model.footPose(legs::Side::Left).translation().z(), 0.1);
+    ASSERT_GT(model.footPose(legs::Side::Right).translation().z(), 0.1);
+
+    EXPECT_FALSE(model.inContact(legs::Side::Left));
+    EXPECT_FALSE(model.inContact(legs::Side::Right));
+}
+
+TEST(RobotModel, InContactIsTrueWithBothFeetOnTheGround) {
+    dynamics::RobotModel model(kModelPath);
+    Eigen::Isometry3d base = Eigen::Isometry3d::Identity();
+    base.translation() = Eigen::Vector3d(0.0, 0.0, 0.55);  // legs straight, feet at the floor
+    model.setState(base, Eigen::VectorXd::Zero(6));
+
+    EXPECT_TRUE(model.inContact(legs::Side::Left));
+    EXPECT_TRUE(model.inContact(legs::Side::Right));
+}
+
+TEST(RobotModel, InContactDistinguishesTheTwoLegs) {
+    dynamics::RobotModel model(kModelPath);
+    Eigen::Isometry3d base = Eigen::Isometry3d::Identity();
+    base.translation() = Eigen::Vector3d(0.0, 0.0, 0.45);
+
+    // Flex the left knee to pick that foot up; the right leg stays planted.
+    Eigen::VectorXd q = Eigen::VectorXd::Zero(6);
+    q[2] = 1.5;  // left_knee
+    model.setState(base, q);
+
+    EXPECT_FALSE(model.inContact(legs::Side::Left));
+    EXPECT_TRUE(model.inContact(legs::Side::Right));
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
