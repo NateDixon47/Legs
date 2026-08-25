@@ -16,12 +16,14 @@ find_package(nav_msgs REQUIRED)
 find_package(legs_dynamics REQUIRED)
 
 add_executable(ik_node src/ik_node.cpp)
-add_executable(step src/step.cpp)
 add_executable(torque_node src/torque_node.cpp)
 add_executable(controller_node src/controller_node.cpp)
 add_executable(traj_node src/traj_node.cpp)
 
 
+# trajectory_generator.hpp lives in THIS package's include/, so it needs an include
+# path, not a find_package -- a package cannot depend on itself.
+target_include_directories(traj_node PRIVATE include)
 ament_target_dependencies(traj_node
   rclcpp
   utilities
@@ -56,18 +58,7 @@ ament_target_dependencies(torque_node
   nav_msgs
   legs_dynamics)
 
-# Lets #include "legs_control/..." headers resolve from this package's include/.
-target_include_directories(step PRIVATE include)
-ament_target_dependencies(step
-  rclcpp
-  utilities
-  std_msgs
-  sensor_msgs)
-
 install(TARGETS ik_node
-  DESTINATION lib/${PROJECT_NAME})
-
-install(TARGETS step
   DESTINATION lib/${PROJECT_NAME})
 
 install(TARGETS torque_node

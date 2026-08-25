@@ -29,7 +29,7 @@ using namespace std::chrono_literals;
 // Gait state is owned by the trajectory node; this node only consumes it.
 class controller_node : public rclcpp::Node{
     public:
-        controller_node() : Node("controller_node"), z_target_(0.45), stance_(legs::Side::Right){
+        controller_node() : Node("controller_node"), z_target_(0.475), stance_(legs::Side::Right){
             publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/effort_controller/commands", 10);
             p_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>("/foot_pos", 10, std::bind(&controller_node::foot_pos_callback, this, std::placeholders::_1));
             js_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&controller_node::js_callback, this, std::placeholders::_1));
@@ -40,7 +40,7 @@ class controller_node : public rclcpp::Node{
                     log_stance_ = (stance_ == legs::Side::Left) ? 0 : 1;
                     });
 
-            swing_vel_sub_ = this->create_subscription<std_msgs::msg::Float64>("/swing_vel", 10, std::bind(&controller_node::swing_vel_callback, this, std::placeholders::_1));
+            swing_vel_sub_ = this->create_subscription<std_msgs::msg::Float64MultiArray>("/swing_vel", 10, std::bind(&controller_node::swing_vel_callback, this, std::placeholders::_1));
 
             std::string mjcf = this->declare_parameter<std::string>("mjcf_path", "");
             model_ = std::make_unique<dynamics::RobotModel>(mjcf);
@@ -192,9 +192,14 @@ class controller_node : public rclcpp::Node{
 
             // Hold the current foot position until the first target arrives (avoids a startup yank).
             Eigen::Vector3d p_des = have_p_des_ ? p_des_ : p_foot_sw;
-            Eigen::Vector3d v_des(0.0, 0.0, 0.0);   //swing_vel_z_  // desired foot vel (world, z-only for now)
-
-            Eigen::Vector3d F_foot = Kp_s.cwiseProduct(p_des - p_foot_sw) + Kd_s.cwiseProduct(v_des - v_foot_sw);
+            // Feedforward gets its OWN gain, separate from damping. Sharing one gain for
+            // both the FF push (Kd*v_des) and the damping (-Kd*v_foot) makes them
+            // impossible to tune independently -- raising damping also over-drives the
+            // feedforward, which is what produced the growing z overshoot previously.
+            // Set Kff_s to zero to run with the feedforward off.
+            Eigen::Vector3d F_foot = Kp_s.cwiseProduct(p_des - p_foot_sw)
+                                   - Kd_s.cwiseProduct(v_foot_sw)
+                                   + Kff_s.cwiseProduct(v_des_);
             tau.segment<3>(swing0) = tau_g.segment<3>(swing0) + Jsw.transpose() * F_foot;       // keep swing gravity comp
 
             q_log_file_
@@ -277,8 +282,9 @@ class controller_node : public rclcpp::Node{
             base_ready_ = true;
         }
 
-        void swing_vel_callback(const std_msgs::msg::Float64 &msg) {
-            swing_vel_z_ = msg.data;
+        void swing_vel_callback(const std_msgs::msg::Float64MultiArray &msg) {
+            if (msg.data.size() < 3) return;
+            v_des_ = Eigen::Vector3d{msg.data[0], msg.data[1], msg.data[2]};
         }
 
         rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr publisher_;
@@ -286,7 +292,7 @@ class controller_node : public rclcpp::Node{
         rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr js_subscriber_;
         rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
         rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr stance_sub_;
-        rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr swing_vel_sub_;
+        rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr swing_vel_sub_;
 
         std::unique_ptr<dynamics::RobotModel> model_;
         robot::RobotState state_;
@@ -294,9 +300,12 @@ class controller_node : public rclcpp::Node{
         // Swing-foot task-space reference and gains.
         Eigen::Vector3d p_des_ = Eigen::Vector3d::Zero();
         bool have_p_des_ = false;
-        double swing_vel_z_ = 0.0;
+        Eigen::Vector3d v_des_ = Eigen::Vector3d::Zero();   // swing-foot velocity reference
         Eigen::Vector3d Kp_s {100.0, 50.0, 1000.0};   // N/m
-        Eigen::Vector3d Kd_s {1.0, 3.0, 5.0};         // N.s/m
+        Eigen::Vector3d Kd_s {1.0, 3.0, 5.0};         // N.s/m   damping on measured velocity
+        // Started equal to Kd_s so splitting the gain is behaviour-neutral: any change
+        // you see comes from the trajectory, not from this refactor. Tune from here.
+        Eigen::Vector3d Kff_s {1.0, 3.0, 5.0};        // N.s/m   feedforward on v_des
 
         bool map_built_ = false;
         bool base_ready_ = false;

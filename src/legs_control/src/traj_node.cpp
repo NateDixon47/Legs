@@ -13,11 +13,13 @@
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "geometry_msgs/msg/point.hpp"
+#include "legs_control/trajectory_generator.hpp"
 
 #include <fstream>
 #include <iomanip>
 #include <algorithm>
 #include <cmath>
+#include <array>
 
 
 using namespace std::chrono_literals;
@@ -46,15 +48,16 @@ class Traj_Node : public rclcpp::Node{
                 std::bind(&Traj_Node::odom_callback, this, std::placeholders::_1));
 
             foot_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/foot_pos", 10);
-            swing_vel_pub_ = this->create_publisher<std_msgs::msg::Float64>("/swing_vel", 10);
+            swing_vel_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/swing_vel", 10);
             stance_pub_ = this->create_publisher<std_msgs::msg::Int32>("/stance", 10);
 
             // Runs at the controller's rate so the reference isn't a 25 ms staircase.
-            timer_ = this->create_wall_timer(2ms, std::bind(&Traj_Node::traj_callback, this));
+            timer_ = this->create_wall_timer(2ms, std::bind(&Traj_Node::cubic_traj, this));
 
             traj_log_.open("traj_log.csv");
             traj_log_ << "time,stance,t_swing,tau,contact_l,contact_r,has_lifted,"
-                      << "step_x,step_y,des_x,des_y,des_z,vz_des,act_x,act_y,act_z,switched\n";
+                      << "step_x,step_y,des_x,des_y,des_z,vx_des,vy_des,vz_des,"
+                      << "act_x,act_y,act_z,switched\n";
         }
 
         ~Traj_Node() { traj_log_.close(); }
@@ -136,15 +139,26 @@ class Traj_Node : public rclcpp::Node{
             std::swap(stance_, swing_);
             t_swing_ = 0.0;
             has_lifted_ = false;
+            latch_reference();
+        }
+
+        // Seed the swing reference at the new swing foot's actual position. This is the
+        // cubic's initial condition and is read ONCE per step -- from the next tick on,
+        // the trajectory always re-solves from wherever the reference itself got to.
+        // The foot was planted a moment ago, so its velocity is taken as zero.
+        void latch_reference() {
+            p_ref_ = model_->footPose(swing_).translation();
+            v_ref_.setZero();
         }
 
         // --- swing reference ---------------------------------------------------
 
-        void traj_callback() {
+        void cubic_traj() {
             if (!map_built_ || !base_ready_) { return; }
 
             if (!initialized_) {
                 ground_z_ = model_->footPose(stance_).translation().z();
+                latch_reference();
                 initialized_ = true;
             }
 
@@ -162,32 +176,51 @@ class Traj_Node : public rclcpp::Node{
             const Eigen::Vector3d p_stance_w = model_->footPose(stance_).translation();
             const Eigen::Vector3d p_swing_w  = model_->footPose(swing_).translation();
 
-            // xy: track the foothold directly (no interpolation) -- matches the original.
-            // z: sine arc, ground -> apex at mid-swing -> ground at touchdown.
-            const double tau = std::clamp(t_swing_ / T_, 0.0, 1.0);
-            Eigen::Vector3d p_des;
-            p_des.head<2>() = step_ + p_stance_w.head<2>();
-            p_des.z() = ground_z_ + apex_ * std::sin(M_PI * tau);
+            // --- xy: cubic re-solved from the CURRENT REFERENCE STATE ---------------
+            // step_ is stance-relative, so add the stance foot to get a world endpoint.
+            // z here is a placeholder -- the sine arc overwrites it below.
+            Eigen::Vector3d p_end;
+            p_end.head<2>() = step_ + p_stance_w.head<2>();
+            p_end.z() = ground_z_;
 
+            // Solve from where the reference IS, over the time REMAINING. Solving from
+            // the measured foot instead would fold tracking error into the reference, so
+            // a lagging foot would look like good tracking while arriving late. Using the
+            // full T_ instead of the remainder would re-plan a fresh full-length move
+            // every tick and never converge.
+            const double t_rem = std::max(T_ - t_swing_, min_horizon_);
+            const Eigen::Vector3d v_end = Eigen::Vector3d::Zero();   // no sliding at touchdown
+
+            std::array<Eigen::Vector3d, 4> coeffs =
+                cubic_coeffs(p_ref_, v_ref_, p_end, v_end, t_rem);
+            // Evaluate one control step into the freshly re-parameterised curve -- NOT at
+            // t_swing_, which would index a curve that now starts at "now".
+            std::array<Eigen::Vector3d, 2> desired = evaluate_q(dt_, coeffs[0], coeffs[1], coeffs[2], coeffs[3]);
+
+            p_ref_ = desired[0];
+            v_ref_ = desired[1];
+
+            // --- z: sine arc, ground -> apex at mid-swing -> ground at touchdown -----
+            // Not re-solved: its endpoint is the ground and never moves, so it is a
+            // direct function of swing phase.
+            const double tau = std::clamp(t_swing_ / T_, 0.0, 1.0);
+            p_ref_.z() = ground_z_ + apex_ * std::sin(M_PI * tau);
             // Past touchdown the arc's position is clamped, so its slope must be zero
             // too. Reporting the unclamped derivative commands a persistent downward
             // velocity for the whole overrun, driving the swing foot into the ground.
-            const double vz_des = (tau >= 1.0) ? 0.0
-                                               : apex_ * (M_PI / T_) * std::cos(M_PI * tau);
+            v_ref_.z() = (tau >= 1.0) ? 0.0 : apex_ * (M_PI / T_) * std::cos(M_PI * tau);
 
-            // --- publish (left = [0:3], right = [3:6], world frame) ---
-            // The stance slot carries the measured stance foot; the controller force-
-            // controls that leg and ignores it, but publishing the measurement rather
-            // than a remembered command keeps the message honest.
-            const Eigen::Vector3d left  = (stance_ == legs::Side::Left) ? p_stance_w : p_des;
-            const Eigen::Vector3d right = (stance_ == legs::Side::Left) ? p_des : p_stance_w;
+            // --- publish (left = [0:3], right = [3:6], world frame) -----------------
+            const Eigen::Vector3d left  = (stance_ == legs::Side::Left) ? p_stance_w : p_ref_;
+            const Eigen::Vector3d right = (stance_ == legs::Side::Left) ? p_ref_ : p_stance_w;
 
             std_msgs::msg::Float64MultiArray foot_msg;
             foot_msg.data = {left.x(), left.y(), left.z(), right.x(), right.y(), right.z()};
             foot_pub_->publish(foot_msg);
 
-            std_msgs::msg::Float64 vel_msg;
-            vel_msg.data = vz_des;
+            // Full swing-foot velocity now, not just z.
+            std_msgs::msg::Float64MultiArray vel_msg;
+            vel_msg.data = {v_ref_.x(), v_ref_.y(), v_ref_.z()};
             swing_vel_pub_->publish(vel_msg);
 
             const double t = this->get_clock()->now().seconds();
@@ -200,8 +233,8 @@ class Traj_Node : public rclcpp::Node{
                 << model_->inContact(legs::Side::Right) << ","
                 << has_lifted_ << ","
                 << step_.x() << "," << step_.y() << ","
-                << p_des.x() << "," << p_des.y() << "," << p_des.z() << ","
-                << vz_des << ","
+                << p_ref_.x() << "," << p_ref_.y() << "," << p_ref_.z() << ","
+                << v_ref_.x() << "," << v_ref_.y() << "," << v_ref_.z() << ","
                 << p_swing_w.x() << "," << p_swing_w.y() << "," << p_swing_w.z() << ","
                 << (switched ? 1 : 0) << "\n";
 
@@ -215,7 +248,7 @@ class Traj_Node : public rclcpp::Node{
         rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
 
         rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr foot_pub_;
-        rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr swing_vel_pub_;
+        rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr swing_vel_pub_;
         rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr stance_pub_;
 
         rclcpp::TimerBase::SharedPtr timer_;
@@ -244,6 +277,13 @@ class Traj_Node : public rclcpp::Node{
         double T_max_ = 2.0 * T_;   // hard timeout so a step can never stall
         double apex_ = 0.05;        // swing height above ground
         double ground_z_ = 0.0;
+
+        // Swing reference state, advanced one control step per tick. Seeded at liftoff.
+        Eigen::Vector3d p_ref_ = Eigen::Vector3d::Zero();
+        Eigen::Vector3d v_ref_ = Eigen::Vector3d::Zero();
+        // Floor on the cubic's horizon: a2 ~ 1/T^2 and a3 ~ 1/T^3, so the coefficients
+        // blow up as the step ends. Also covers overrun, when t_swing_ runs past T_.
+        const double min_horizon_ = 0.02;
 
         const std::array<std::string, 6> joint_order_{
             "left_hip_yaw", "left_hip_pitch", "left_knee",
