@@ -192,7 +192,7 @@ class controller_node : public rclcpp::Node{
 
             // Hold the current foot position until the first target arrives (avoids a startup yank).
             Eigen::Vector3d p_des = have_p_des_ ? p_des_ : p_foot_sw;
-            Eigen::Vector3d v_des(0.0, 0.0, swing_vel_z_);                                      // desired foot vel (world, z-only for now)
+            Eigen::Vector3d v_des(0.0, 0.0, 0.0);   //swing_vel_z_  // desired foot vel (world, z-only for now)
 
             Eigen::Vector3d F_foot = Kp_s.cwiseProduct(p_des - p_foot_sw) + Kd_s.cwiseProduct(v_des - v_foot_sw);
             tau.segment<3>(swing0) = tau_g.segment<3>(swing0) + Jsw.transpose() * F_foot;       // keep swing gravity comp

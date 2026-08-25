@@ -240,7 +240,7 @@ class Traj_Node : public rclcpp::Node{
         bool has_lifted_ = false;
 
         const double dt_ = 0.002;   // must match the timer period
-        double T_ = 0.25;           // nominal swing duration
+        double T_ = 0.2;           // nominal swing duration
         double T_max_ = 2.0 * T_;   // hard timeout so a step can never stall
         double apex_ = 0.05;        // swing height above ground
         double ground_z_ = 0.0;
