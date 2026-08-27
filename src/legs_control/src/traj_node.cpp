@@ -197,18 +197,35 @@ class Traj_Node : public rclcpp::Node{
             // t_swing_, which would index a curve that now starts at "now".
             std::array<Eigen::Vector3d, 2> desired = evaluate_q(dt_, coeffs[0], coeffs[1], coeffs[2], coeffs[3]);
 
-            p_ref_ = desired[0];
-            v_ref_ = desired[1];
+            // xy ONLY. The cubic is componentwise and its z endpoint is ground_z_, so
+            // writing z here would pull the reference back up every tick during the seek
+            // phase below, diluting v_seek_ from 0.2 to ~0.147 m/s and decaying further
+            // the longer the seek runs. The z block is the sole owner of z.
+            p_ref_.head<2>() = desired[0].head<2>();
+            v_ref_.head<2>() = desired[1].head<2>();
 
             // --- z: sine arc, ground -> apex at mid-swing -> ground at touchdown -----
             // Not re-solved: its endpoint is the ground and never moves, so it is a
             // direct function of swing phase.
+
+            // const double tau = std::clamp(t_swing_ / T_, 0.0, 1.0);
+            // p_ref_.z() = ground_z_ + apex_ * std::sin(M_PI * tau);
+            // // Past touchdown the arc's position is clamped, so its slope must be zero
+            // // too. Reporting the unclamped derivative commands a persistent downward
+            // // velocity for the whole overrun, driving the swing foot into the ground.
+            // v_ref_.z() = (tau >= 1.0) ? 0.0 : apex_ * (M_PI / T_) * std::cos(M_PI * tau);
+
             const double tau = std::clamp(t_swing_ / T_, 0.0, 1.0);
-            p_ref_.z() = ground_z_ + apex_ * std::sin(M_PI * tau);
-            // Past touchdown the arc's position is clamped, so its slope must be zero
-            // too. Reporting the unclamped derivative commands a persistent downward
-            // velocity for the whole overrun, driving the swing foot into the ground.
-            v_ref_.z() = (tau >= 1.0) ? 0.0 : apex_ * (M_PI / T_) * std::cos(M_PI * tau);
+            if (tau < 1.0) {
+                p_ref_.z() = ground_z_ + apex_ * std::sin(M_PI * tau);
+                v_ref_.z() = apex_ * (M_PI / T_) * std::cos(M_PI * tau);
+            } else {
+                const double z_floor = ground_z_ - seek_max_depth_;
+                const double z_next = std::max(p_ref_.z() - v_seek_ * dt_, z_floor);
+
+                v_ref_.z() = (z_next - p_ref_.z()) / dt_;
+                p_ref_.z() = z_next;
+            }
 
             // --- publish (left = [0:3], right = [3:6], world frame) -----------------
             const Eigen::Vector3d left  = (stance_ == legs::Side::Left) ? p_stance_w : p_ref_;
@@ -277,6 +294,9 @@ class Traj_Node : public rclcpp::Node{
         double T_max_ = 2.0 * T_;   // hard timeout so a step can never stall
         double apex_ = 0.05;        // swing height above ground
         double ground_z_ = 0.0;
+
+        double v_seek_ = 0.2;
+        double seek_max_depth_ = 0.03;
 
         // Swing reference state, advanced one control step per tick. Seeded at liftoff.
         Eigen::Vector3d p_ref_ = Eigen::Vector3d::Zero();

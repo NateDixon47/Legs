@@ -29,7 +29,7 @@ using namespace std::chrono_literals;
 // Gait state is owned by the trajectory node; this node only consumes it.
 class controller_node : public rclcpp::Node{
     public:
-        controller_node() : Node("controller_node"), z_target_(0.475), stance_(legs::Side::Right){
+        controller_node() : Node("controller_node"), z_target_(0.47), stance_(legs::Side::Right){
             publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/effort_controller/commands", 10);
             p_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>("/foot_pos", 10, std::bind(&controller_node::foot_pos_callback, this, std::placeholders::_1));
             js_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&controller_node::js_callback, this, std::placeholders::_1));
@@ -197,9 +197,7 @@ class controller_node : public rclcpp::Node{
             // impossible to tune independently -- raising damping also over-drives the
             // feedforward, which is what produced the growing z overshoot previously.
             // Set Kff_s to zero to run with the feedforward off.
-            Eigen::Vector3d F_foot = Kp_s.cwiseProduct(p_des - p_foot_sw)
-                                   - Kd_s.cwiseProduct(v_foot_sw)
-                                   + Kff_s.cwiseProduct(v_des_);
+            Eigen::Vector3d F_foot = Kp_s.cwiseProduct(p_des - p_foot_sw) - Kd_s.cwiseProduct(v_foot_sw) + Kff_s.cwiseProduct(v_des_);
             tau.segment<3>(swing0) = tau_g.segment<3>(swing0) + Jsw.transpose() * F_foot;       // keep swing gravity comp
 
             q_log_file_
@@ -301,11 +299,17 @@ class controller_node : public rclcpp::Node{
         Eigen::Vector3d p_des_ = Eigen::Vector3d::Zero();
         bool have_p_des_ = false;
         Eigen::Vector3d v_des_ = Eigen::Vector3d::Zero();   // swing-foot velocity reference
-        Eigen::Vector3d Kp_s {100.0, 50.0, 1000.0};   // N/m
-        Eigen::Vector3d Kd_s {1.0, 3.0, 5.0};         // N.s/m   damping on measured velocity
+        Eigen::Vector3d Kp_s {350.0, 300.0, 400.0};   // N/m
+        Eigen::Vector3d Kd_s {15.0, 5.0, 7.0};      // N.s/m   damping on measured velocity
         // Started equal to Kd_s so splitting the gain is behaviour-neutral: any change
         // you see comes from the trajectory, not from this refactor. Tune from here.
-        Eigen::Vector3d Kff_s {1.0, 3.0, 5.0};        // N.s/m   feedforward on v_des
+        Eigen::Vector3d Kff_s {15.0, 5.0, 7.0};        // N.s/m   feedforward on v_des
+
+        // Eigen::Vector3d Kp_s {350.0, 300.0, 400.0};   // N/m
+        // Eigen::Vector3d Kd_s {15.0, 5.0, 7.0};      // N.s/m   damping on measured velocity
+        // // Started equal to Kd_s so splitting the gain is behaviour-neutral: any change
+        // // you see comes from the trajectory, not from this refactor. Tune from here.
+        // Eigen::Vector3d Kff_s {15.0, 5.0, 7.0};   
 
         bool map_built_ = false;
         bool base_ready_ = false;
