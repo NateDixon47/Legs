@@ -176,11 +176,31 @@ class Traj_Node : public rclcpp::Node{
             const Eigen::Vector3d p_stance_w = model_->footPose(stance_).translation();
             const Eigen::Vector3d p_swing_w  = model_->footPose(swing_).translation();
 
+            // --- lateral foot-placement offset --------------------------------------
+            // compute_px places the foot AT the lateral capture point, which is only
+            // marginally stable: stepping exactly where the CP predicts neither adds nor
+            // removes lateral energy, so any perturbation compounds. Measured without
+            // this, peak |xi_y| grew 1.41x per step and diverged in ~8 steps.
+            //
+            // Stepping a fixed distance OUTBOARD of the CP, alternating by swing side, is
+            // what turns that marginal fixed point into a stable limit cycle. +y is left,
+            // so the left swing foot steps further +y and the right further -y.
+            //
+            //   b_lat = leg_offset / (1 + exp(w*T)),  w = sqrt(g / h)
+            //
+            // evaluated from the live CoM height rather than a constant, since w depends
+            // on it and the torso height target has been moving.
+            const double h = std::max(model_->comPosition().z() - p_stance_w.z(), 0.15);
+            const double w = std::sqrt(9.81 / h);
+            const double b_lat = leg_offset_ / (1.0 + std::exp(w * T_));
+            const double side = (swing_ == legs::Side::Left) ? 1.0 : -1.0;
+
             // --- xy: cubic re-solved from the CURRENT REFERENCE STATE ---------------
             // step_ is stance-relative, so add the stance foot to get a world endpoint.
             // z here is a placeholder -- the sine arc overwrites it below.
             Eigen::Vector3d p_end;
             p_end.head<2>() = step_ + p_stance_w.head<2>();
+            p_end.y() += side * b_lat;
             p_end.z() = ground_z_;
 
             // Solve from where the reference IS, over the time REMAINING. Solving from
@@ -290,9 +310,12 @@ class Traj_Node : public rclcpp::Node{
         bool has_lifted_ = false;
 
         const double dt_ = 0.002;   // must match the timer period
-        double T_ = 0.2;           // nominal swing duration
+        double T_ = 0.175;           // nominal swing duration
         double T_max_ = 2.0 * T_;   // hard timeout so a step can never stall
         double apex_ = 0.05;        // swing height above ground
+        // Nominal lateral stance width, the numerator of the b_lat formula. Tune this:
+        // too small and lateral still diverges, too large and it oscillates outward.
+        double leg_offset_ = 0.2;
         double ground_z_ = 0.0;
 
         double v_seek_ = 0.2;
