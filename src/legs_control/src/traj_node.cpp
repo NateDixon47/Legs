@@ -176,11 +176,17 @@ class Traj_Node : public rclcpp::Node{
             const Eigen::Vector3d p_stance_w = model_->footPose(stance_).translation();
             const Eigen::Vector3d p_swing_w  = model_->footPose(swing_).translation();
 
+            const double h = std::max(model_->comPosition().z() - p_stance_w.z(), 0.15);
+            const double w = std::sqrt(9.81 / h);
+            const double b_lat = leg_offset_ / (1.0 + std::exp(w * T_));
+            const double side = (swing_ == legs::Side::Left) ? 1.0 : -1.0;
+
             // --- xy: cubic re-solved from the CURRENT REFERENCE STATE ---------------
             // step_ is stance-relative, so add the stance foot to get a world endpoint.
             // z here is a placeholder -- the sine arc overwrites it below.
             Eigen::Vector3d p_end;
             p_end.head<2>() = step_ + p_stance_w.head<2>();
+            p_end.y() += leg_offset_ /(1.0 + std::exp(w * T_));
             p_end.z() = ground_z_;
 
             // Solve from where the reference IS, over the time REMAINING. Solving from
@@ -277,6 +283,7 @@ class Traj_Node : public rclcpp::Node{
         double T_max_ = 2.0 * T_;   // hard timeout so a step can never stall
         double apex_ = 0.05;        // swing height above ground
         double ground_z_ = 0.0;
+        double leg_offset_ = 0.0;
 
         // Swing reference state, advanced one control step per tick. Seeded at liftoff.
         Eigen::Vector3d p_ref_ = Eigen::Vector3d::Zero();
