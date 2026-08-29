@@ -302,10 +302,10 @@ class controller_node : public rclcpp::Node{
         bool have_p_des_ = false;
         Eigen::Vector3d v_des_ = Eigen::Vector3d::Zero();   // swing-foot velocity reference
         Eigen::Vector3d Kp_s {200.0, 100.0, 1000.0};   // N/m
-        Eigen::Vector3d Kd_s {2.0, 3.0, 10.0};         // N.s/m   damping on measured velocity
+        Eigen::Vector3d Kd_s {2.0, 3.0, 20.0};         // N.s/m   damping on measured velocity
         // Started equal to Kd_s so splitting the gain is behaviour-neutral: any change
         // you see comes from the trajectory, not from this refactor. Tune from here.
-        Eigen::Vector3d Kff_s {2.0, 3.0, 10.0};        // N.s/m   feedforward on v_des
+        Eigen::Vector3d Kff_s {2.0, 3.0, 20.0};        // N.s/m   feedforward on v_des
 
         bool map_built_ = false;
         bool base_ready_ = false;
