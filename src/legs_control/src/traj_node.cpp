@@ -186,7 +186,7 @@ class Traj_Node : public rclcpp::Node{
             // z here is a placeholder -- the sine arc overwrites it below.
             Eigen::Vector3d p_end;
             p_end.head<2>() = step_ + p_stance_w.head<2>();
-            p_end.y() += leg_offset_ /(1.0 + std::exp(w * T_));
+            p_end.y() += side * b_lat;
             p_end.z() = ground_z_;
 
             // Solve from where the reference IS, over the time REMAINING. Solving from
@@ -311,6 +311,8 @@ class Traj_Node : public rclcpp::Node{
         // yet contacted, walk the z reference down at this speed instead of holding it.
         double v_seek_ = 0.2;            // m/s downward reference speed after the arc ends
         double seek_max_depth_ = 0.03;   // m, floor on how far below ground it may walk
+
+        // NOTE: Values >0 fix the leg collision issue, but larger values cause the controller to become unstable
         double leg_offset_ = 0.0;
 
         // Swing reference state, advanced one control step per tick. Seeded at liftoff.

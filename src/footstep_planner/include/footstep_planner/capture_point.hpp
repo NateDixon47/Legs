@@ -10,7 +10,7 @@ namespace capturepoint {
 
 class CapturePoint {
     public:
-        CapturePoint() : K_(1.0),  height_(0.475){}
+        CapturePoint() : K_(2, 2),  height_(0.475){}
 
         Eigen::Vector2d compute_cp(const Eigen::Vector2d &x, const Eigen::Vector2d &x_dot) {
             return x + x_dot/w_;
@@ -22,7 +22,7 @@ class CapturePoint {
             Eigen::Vector2d xi_dot = x_dot + x_ddot/w_;
             Eigen::Vector2d xi_des  = x + x_dot_des/w_;
 
-            return xi - (xi_dot/w_) + K_*(xi-xi_des);
+            return xi - (xi_dot/w_) + K_.cwiseProduct(xi-xi_des);
         }
 
         // Adaptive sine swing-height profile (port of the reference sin_adapt).
@@ -80,7 +80,7 @@ class CapturePoint {
     private:
         double height_;
         double w_ = std::sqrt(9.81/height_);
-        float K_;
+        Eigen::Vector2d K_;
         double leg_offset_ = 0.25; // left and right leg offset for step
         int side_ = 1;
 

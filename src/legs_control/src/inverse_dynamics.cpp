@@ -315,7 +315,7 @@ class inverse_dynamics_controller_node : public rclcpp::Node{
         Eigen::Vector3d Kd_s {80.0, 64.0, 64.0};         // N.s/m   damping on measured velocity
         // Started equal to Kd_s so splitting the gain is behaviour-neutral: any change
         // you see comes from the trajectory, not from this refactor. Tune from here.
-        Eigen::Vector3d Kff_s {80.0, 64.0, 64.0};        // N.s/m   feedforward on v_des
+        Eigen::Vector3d Kff_s {80.0, 64.0, 100.0};        // N.s/m   feedforward on v_des
 
         bool map_built_ = false;
         bool base_ready_ = false;
