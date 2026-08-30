@@ -17,12 +17,13 @@ inline std::array<Eigen::Vector3d, 4> cubic_coeffs(
     return {a0, a1, a2, a3};
 }
 
-inline std::array<Eigen::Vector3d, 2> evaluate_q(double t,
+inline std::array<Eigen::Vector3d, 3> evaluate_q(double t,
     const Eigen::Vector3d& a0, const Eigen::Vector3d& a1,
     const Eigen::Vector3d& a2, const Eigen::Vector3d& a3) {
     Eigen::Vector3d q = a0 + a1 * t + a2 * t * t + a3 * t * t * t;
     Eigen::Vector3d q_dot = a1 + 2*a2*t + 3*a3*t*t;
-    return {q, q_dot};
+    Eigen::Vector3d q_ddot = 2*a2 + 6*a3*t;
+    return {q, q_dot, q_ddot};
 }
 
 // Builds a swing-foot trajectory that lifts from qi, passes through an apex,

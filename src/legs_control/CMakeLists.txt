@@ -19,12 +19,23 @@ add_executable(ik_node src/ik_node.cpp)
 add_executable(torque_node src/torque_node.cpp)
 add_executable(controller_node src/controller_node.cpp)
 add_executable(traj_node src/traj_node.cpp)
+add_executable(inverse_dynamics src/inverse_dynamics.cpp)
 
 
 # trajectory_generator.hpp lives in THIS package's include/, so it needs an include
 # path, not a find_package -- a package cannot depend on itself.
 target_include_directories(traj_node PRIVATE include)
 ament_target_dependencies(traj_node
+  rclcpp
+  utilities
+  geometry_msgs
+  std_msgs
+  sensor_msgs
+  nav_msgs
+  legs_dynamics)
+
+
+ament_target_dependencies(inverse_dynamics
   rclcpp
   utilities
   geometry_msgs
@@ -68,6 +79,9 @@ install(TARGETS controller_node
   DESTINATION lib/${PROJECT_NAME})
 
 install(TARGETS traj_node
+  DESTINATION lib/${PROJECT_NAME})
+
+install(TARGETS inverse_dynamics
   DESTINATION lib/${PROJECT_NAME})
 
 

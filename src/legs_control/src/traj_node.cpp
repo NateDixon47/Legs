@@ -201,7 +201,7 @@ class Traj_Node : public rclcpp::Node{
                 cubic_coeffs(p_ref_, v_ref_, p_end, v_end, t_rem);
             // Evaluate one control step into the freshly re-parameterised curve -- NOT at
             // t_swing_, which would index a curve that now starts at "now".
-            std::array<Eigen::Vector3d, 2> desired = evaluate_q(dt_, coeffs[0], coeffs[1], coeffs[2], coeffs[3]);
+            std::array<Eigen::Vector3d, 3> desired = evaluate_q(dt_, coeffs[0], coeffs[1], coeffs[2], coeffs[3]);
 
             // xy ONLY. The cubic is componentwise and its z endpoint is ground_z_, so
             // writing z here would pull the reference back up every tick during the seek
@@ -209,14 +209,19 @@ class Traj_Node : public rclcpp::Node{
             // -0.318/-0.239/-0.180/-0.136. The z block is the sole owner of z.
             p_ref_.head<2>() = desired[0].head<2>();
             v_ref_.head<2>() = desired[1].head<2>();
+            a_ref_.head<2>() = desired[2].head<2>();
+
 
             // --- z: sine arc while the step runs, then seek the ground ---------------
             // Not re-solved: the arc's endpoint is the ground and never moves, so it is a
             // direct function of swing phase.
+
+            // TODO: Need to extend this to acceleration
             const double tau = std::clamp(t_swing_ / T_, 0.0, 1.0);
             if (tau < 1.0) {
                 p_ref_.z() = ground_z_ + apex_ * std::sin(M_PI * tau);
                 v_ref_.z() = apex_ * (M_PI / T_) * std::cos(M_PI * tau);
+                a_ref_.z() = -apex_ * (M_PI / T_) * (M_PI / T_) * std::sin(M_PI * tau);
             } else {
                 // The arc has finished but the foot has not touched down -- steps run
                 // longer than T_. Holding position here leaves only the position spring
@@ -232,11 +237,14 @@ class Traj_Node : public rclcpp::Node{
             }
 
             // --- publish (left = [0:3], right = [3:6], world frame) -----------------
-            const Eigen::Vector3d left  = (stance_ == legs::Side::Left) ? p_stance_w : p_ref_;
-            const Eigen::Vector3d right = (stance_ == legs::Side::Left) ? p_ref_ : p_stance_w;
+            // const Eigen::Vector3d left  = (stance_ == legs::Side::Left) ? p_stance_w : p_ref_;
+            // const Eigen::Vector3d right = (stance_ == legs::Side::Left) ? p_ref_ : p_stance_w;
 
             std_msgs::msg::Float64MultiArray foot_msg;
-            foot_msg.data = {left.x(), left.y(), left.z(), right.x(), right.y(), right.z()};
+            foot_msg.data = {p_ref_.x(), p_ref_.y(), p_ref_.z(), 
+                             v_ref_.x(), v_ref_.y(), v_ref_.z(), 
+                             a_ref_.x(), a_ref_.y(), a_ref_.z()};
+            
             foot_pub_->publish(foot_msg);
 
             // Full swing-foot velocity now, not just z.
@@ -308,6 +316,7 @@ class Traj_Node : public rclcpp::Node{
         // Swing reference state, advanced one control step per tick. Seeded at liftoff.
         Eigen::Vector3d p_ref_ = Eigen::Vector3d::Zero();
         Eigen::Vector3d v_ref_ = Eigen::Vector3d::Zero();
+        Eigen::Vector3d a_ref_ = Eigen::Vector3d::Zero();
         // Floor on the cubic's horizon: a2 ~ 1/T^2 and a3 ~ 1/T^3, so the coefficients
         // blow up as the step ends. Also covers overrun, when t_swing_ runs past T_.
         const double min_horizon_ = 0.02;

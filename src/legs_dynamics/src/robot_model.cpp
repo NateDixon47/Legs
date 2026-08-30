@@ -167,6 +167,16 @@ Eigen::MatrixXd RobotModel::footJacobian(legs::Side side) const {
     return J;  // converts to column-major MatrixXd on return
 }
 
+Eigen::MatrixXd RobotModel::footJacobianDot(legs::Side side) const {
+    const int sid = (side == legs::Side::Left) ? left_foot_site_id_ : right_foot_site_id_;
+    if (sid == -1) { throw std::runtime_error("Foot site not found."); }
+    const int bid = model_->site_bodyid[sid];
+
+    Eigen::Matrix<double, 3, Eigen::Dynamic, Eigen::RowMajor> Jd(3, model_->nv);
+    mj_jacDot(model_.get(), data_.get(), Jd.data(), nullptr, data_->site_xpos + 3 * sid, bid);
+    return Jd;
+}
+
 Eigen::MatrixXd RobotModel::footJacobianFull(legs::Side side) const {
     int sid = (side == legs::Side::Left) ? left_foot_site_id_ : right_foot_site_id_;
     if (sid == -1) {
