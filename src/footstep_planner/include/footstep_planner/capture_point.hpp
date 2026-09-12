@@ -10,7 +10,7 @@ namespace capturepoint {
 
 class CapturePoint {
     public:
-        CapturePoint() : K_(2, 2),  height_(0.475){}
+        CapturePoint() : K_(1.0, 1.0),  height_(0.475){}
 
         Eigen::Vector2d compute_cp(const Eigen::Vector2d &x, const Eigen::Vector2d &x_dot) {
             return x + x_dot/w_;

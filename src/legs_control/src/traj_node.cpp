@@ -313,7 +313,7 @@ class Traj_Node : public rclcpp::Node{
         double seek_max_depth_ = 0.03;   // m, floor on how far below ground it may walk
 
         // NOTE: Values >0 fix the leg collision issue, but larger values cause the controller to become unstable
-        double leg_offset_ = 0.0;
+        double leg_offset_ = 0.0;  // 0.05 is a good value here
 
         // Swing reference state, advanced one control step per tick. Seeded at liftoff.
         Eigen::Vector3d p_ref_ = Eigen::Vector3d::Zero();

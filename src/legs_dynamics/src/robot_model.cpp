@@ -191,6 +191,26 @@ Eigen::MatrixXd RobotModel::footJacobianFull(legs::Side side) const {
     return J;
 }
 
+Eigen::MatrixXd RobotModel::baseJacobian() const {
+    const int nv = model_->nv;
+    Eigen::Matrix<double, 3, Eigen::Dynamic, Eigen::RowMajor> Jp(3, nv), Jr(3, nv);
+    mj_jacBody(model_.get(), data_.get(), Jp.data(), Jr.data(), base_body_id_);
+    Eigen::MatrixXd J(6, nv);
+    J.topRows<3>() = Jp;
+    J.bottomRows<3>() = Jr;
+    return J;
+}
+
+Eigen::MatrixXd RobotModel::baseJacobianDot() const {
+    const int nv = model_->nv;
+    Eigen::Matrix<double, 3, Eigen::Dynamic, Eigen::RowMajor> Jp(3, nv), Jr(3, nv);
+    mj_jacDot(model_.get(), data_.get(), Jp.data(), Jr.data(), data_->xpos + 3 * base_body_id_, base_body_id_);
+    Eigen::MatrixXd J(6, nv);
+    J.topRows<3>() = Jp;
+    J.bottomRows<3>() = Jr;
+    return J;
+}
+
 Eigen::Vector3d RobotModel::comVelocity() const {
     mj_subtreeVel(model_.get(), data_.get());
     return Eigen::Map<const Eigen::Vector3d>(data_->subtree_linvel + 3 * base_body_id_);

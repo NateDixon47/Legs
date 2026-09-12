@@ -62,6 +62,9 @@ class RobotModel {
     Eigen::Isometry3d footPose(legs::Side) const;   // foot site pose, world frame
     Eigen::MatrixXd   footJacobian(legs::Side) const;  // dp_foot/dv     3 x nv
     Eigen::MatrixXd   footJacobianDot(legs::Side) const;
+    Eigen::MatrixXd   baseJacobian() const;
+    Eigen::MatrixXd   baseJacobianDot() const;
+
     Eigen::Vector3d comVelocity() const;
 
     Eigen::MatrixXd footJacobianFull(legs::Side side) const;
