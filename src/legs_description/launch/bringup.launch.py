@@ -118,15 +118,16 @@ def launch_setup(context, *args, **kwargs):
     # Capture-point walking pipeline (always on):
     #   cp_node   -> /step      (planar foothold, stance-relative)
     #   traj_node -> /foot_pos, /swing_vel, /stance  (owns the gait state)
-    #   inverse_dynamics -> /effort_controller/commands
+    #   wbc_node  -> /effort_controller/commands
     #
-    # `controller_node` is the previous task-space impedance controller. Swap the
-    # executable name below to run it instead -- both consume the same topics.
+    # `inverse_dynamics` (resolved-acceleration ID) and `controller_node` (task-space
+    # impedance) are the earlier controllers. Swap the executable name below to run one
+    # of them instead -- all three consume the same topics. Run exactly one.
     mjcf_path = PathJoinSubstitution([pkg, "mujoco", "scene.xml"]).perform(context)
     nodes.append(
         Node(
             package="legs_control",
-            executable="inverse_dynamics",
+            executable="wbc_node",
             parameters=[{"use_sim_time": True, "mjcf_path": mjcf_path}],
             output="both",
         )

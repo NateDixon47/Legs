@@ -14,17 +14,35 @@ find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(legs_dynamics REQUIRED)
+find_package(osqp REQUIRED)
 
 add_executable(ik_node src/ik_node.cpp)
 add_executable(torque_node src/torque_node.cpp)
 add_executable(controller_node src/controller_node.cpp)
 add_executable(traj_node src/traj_node.cpp)
 add_executable(inverse_dynamics src/inverse_dynamics.cpp)
+add_executable(wbc_node src/wbc_node.cpp src/wbc.cpp)
 
 
 # trajectory_generator.hpp lives in THIS package's include/, so it needs an include
 # path, not a find_package -- a package cannot depend on itself.
 target_include_directories(traj_node PRIVATE include)
+target_include_directories(inverse_dynamics PRIVATE include)
+target_link_libraries(inverse_dynamics osqp::osqp)
+
+# wbc.hpp lives in this package's include/, so it needs an include path.
+# osqp::osqp carries its own include dir; Eigen arrives via legs_dynamics.
+target_include_directories(wbc_node PRIVATE include)
+target_link_libraries(wbc_node osqp::osqp)
+ament_target_dependencies(wbc_node
+  rclcpp
+  utilities
+  geometry_msgs
+  std_msgs
+  sensor_msgs
+  nav_msgs
+  legs_dynamics)
+
 ament_target_dependencies(traj_node
   rclcpp
   utilities
@@ -82,6 +100,9 @@ install(TARGETS traj_node
   DESTINATION lib/${PROJECT_NAME})
 
 install(TARGETS inverse_dynamics
+  DESTINATION lib/${PROJECT_NAME})
+
+install(TARGETS wbc_node
   DESTINATION lib/${PROJECT_NAME})
 
 

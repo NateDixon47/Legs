@@ -13,7 +13,7 @@
 #include "std_msgs/msg/int32.hpp"
 #include "std_msgs/msg/float64.hpp"
 
-// #include "legs_control/wbc.hpp"
+#include "legs_control/wbc.hpp"
 
 #include <fstream>
 #include <iomanip>
@@ -21,40 +21,49 @@
 
 using namespace std::chrono_literals;
 
-// Whole-body torque controller.
+// QP whole-body controller -- Stage C.
 //
-//   stance leg - gravity compensation + torso height PD + torso orientation PD,
-//                mapped to joint torques through the stance foot Jacobian.
-//   swing leg  - task-space (Cartesian) impedance about the reference published by
-//                the trajectory node, mapped with J^T.
+// Structurally identical to inverse_dynamics_node, with one difference: the swing
+// leg's joint torques come from the QP instead of a 3x3 Jacobian inverse.
+//
+//   stance leg - UNCHANGED from inverse_dynamics_node: gravity compensation +
+//                torso height PD + torso orientation PD, mapped through the stance
+//                foot Jacobian. The QP has no CoM or orientation task yet, so it
+//                cannot balance; taking all six of its torques would collapse the
+//                robot. The stance controller retires at Stage D.
+//   swing leg  - the WBC: solve for [qddot; Fc] over the whole body, then read the
+//                swing joints out of the recovered tau.
 //
 // Gait state is owned by the trajectory node; this node only consumes it.
-class inverse_dynamics_controller_node : public rclcpp::Node{
+class wbc_controller_node : public rclcpp::Node{
     public:
-        inverse_dynamics_controller_node() : Node("inverse_dynamics_node"), z_target_(0.475), stance_(legs::Side::Right){
+        wbc_controller_node() : Node("wbc_node"), z_target_(0.475), stance_(legs::Side::Right){
             publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/effort_controller/commands", 10);
-            p_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>("/foot_pos", 10, std::bind(&inverse_dynamics_controller_node::foot_pos_callback, this, std::placeholders::_1));
-            js_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&inverse_dynamics_controller_node::js_callback, this, std::placeholders::_1));
-            odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("/simulator/floating_base_state", 10, std::bind(&inverse_dynamics_controller_node::odom_callback, this, std::placeholders::_1));
+            p_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>("/foot_pos", 10, std::bind(&wbc_controller_node::foot_pos_callback, this, std::placeholders::_1));
+            js_subscriber_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&wbc_controller_node::js_callback, this, std::placeholders::_1));
+            odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("/simulator/floating_base_state", 10, std::bind(&wbc_controller_node::odom_callback, this, std::placeholders::_1));
             stance_sub_ = this->create_subscription<std_msgs::msg::Int32>("/stance", 10,
                  [this](const std_msgs::msg::Int32 &msg) {
                     stance_ = (msg.data == 0) ? legs::Side::Left : legs::Side::Right;
                     log_stance_ = (stance_ == legs::Side::Left) ? 0 : 1;
                     });
 
-            // swing_vel_sub_ = this->create_subscription<std_msgs::msg::Float64MultiArray>("/swing_vel", 10, std::bind(&inverse_dynamics_controller_node::swing_vel_callback, this, std::placeholders::_1));
-
             std::string mjcf = this->declare_parameter<std::string>("mjcf_path", "");
             model_ = std::make_unique<dynamics::RobotModel>(mjcf);
 
-            timer_ = this->create_wall_timer(2ms, std::bind(&inverse_dynamics_controller_node::stance_control, this));
+            // Must come after model_ -- the WBC needs nv to size its matrices.
+            wbc_ = std::make_unique<control::WholeBodyController>(model_->nv(), wbc_reg_);
 
-            log_file_.open("torque_log.csv");
-            q_log_file_.open("q_log.csv");
-            height_log_file_.open("height_log.csv");
-            rotation_log_file_.open("rot_log.csv");
-            posture_err_log_file_.open("posture_e.csv");
-            force_log_.open("force_log.csv");
+            timer_ = this->create_wall_timer(2ms, std::bind(&wbc_controller_node::control_loop, this));
+
+            // Distinct filenames so a WBC run does not overwrite an inverse_dynamics run.
+            log_file_.open("wbc_torque_log.csv");
+            q_log_file_.open("wbc_q_log.csv");
+            height_log_file_.open("wbc_height_log.csv");
+            rotation_log_file_.open("wbc_rot_log.csv");
+            posture_err_log_file_.open("wbc_posture_e.csv");
+            force_log_.open("wbc_force_log.csv");
+            qp_log_.open("wbc_qp_log.csv");
 
             //header
             log_file_ << "time," << "left_hip_yaw," << "left_hip_pitch," << "left_knee,"
@@ -68,15 +77,22 @@ class inverse_dynamics_controller_node : public rclcpp::Node{
             rotation_log_file_ << "time," << "roll," << "pitch," << "yaw," << "roll_d," << "pitch_d," << "yaw_d\n";
             posture_err_log_file_ << "time," << "roll_e," << "pitch_e," << "yaw_e\n";
             force_log_ << "time," << "Fx," << "Fy," << "Fz\n";
+
+            // QP diagnostics: solver health, the contact force it chose, and how well
+            // the swing task was met. Watch solve_ok and swing_err first.
+            qp_log_ << "time," << "solve_ok," << "fail_count,"
+                    << "Fc_x," << "Fc_y," << "Fc_z,"
+                    << "swing_err\n";
         }
 
-        ~inverse_dynamics_controller_node() {
+        ~wbc_controller_node() {
             log_file_.close();
             q_log_file_.close();
             height_log_file_.close();
             rotation_log_file_.close();
             posture_err_log_file_.close();
             force_log_.close();
+            qp_log_.close();
         }
 
     private:
@@ -90,7 +106,7 @@ class inverse_dynamics_controller_node : public rclcpp::Node{
             have_p_des_ = true;
         }
 
-        void stance_control() {
+        void control_loop() {
             if (!map_built_ || !base_ready_) return;
 
             double t = this->get_clock()->now().seconds();
@@ -108,15 +124,12 @@ class inverse_dynamics_controller_node : public rclcpp::Node{
 
             const int swing0 = (stance_ == legs::Side::Left) ? 3 : 0;
 
-            // --- stance-foot force feedback ---------------------------------
-            // F is the ground-reaction force the stance foot applies to the body,
-            // in the world frame (+z up), same convention as the height controller.
-            // p_base is the CoM proxy (the CoM sits in the torso); we regulate it
-            // relative to the stance foot.
-            //
-            // NOTE: the horizontal (ankle / CoP) strategy and its friction-cone clamp
-            // were tried and removed -- stance-foot xy forces were destabilising. See
-            // commit 9b6be28 to restore them.
+            // ================================================================
+            // STANCE LEG -- unchanged from inverse_dynamics_node.
+            // Do not replace this with the QP until Stage D adds CoM and
+            // orientation tasks. Today the QP's only task is the swing foot.
+            // ================================================================
+
             Eigen::Vector3d p_foot = model_->footPose(stance_).translation();
             Eigen::Vector3d p_base = state_.base_pose.translation();
             Eigen::Vector3d v_base = state_.base_lin_vel;
@@ -183,34 +196,100 @@ class inverse_dynamics_controller_node : public rclcpp::Node{
 
             tau = tau_g;
 
-            // --- task-space (Cartesian) swing-foot control ---------------------
-            // Regulate the swing foot's WORLD position/velocity directly, then map the
-            // Cartesian force to swing-joint torques with J^T (no IK, no J^-1, no leak).
+            // ================================================================
+            // SWING LEG -- the WBC.
+            // ================================================================
             legs::Side swing_side = (stance_ == legs::Side::Left) ? legs::Side::Right : legs::Side::Left;
 
-            Eigen::Vector3d p_foot_sw = model_->footPose(swing_side).translation();            // actual foot pos (world)
-            Eigen::Matrix3d Jsw = model_->footJacobian(swing_side).block<3,3>(0, 6 + swing0);   // world, swing joints
-            Eigen::Matrix3d Jsw_dot = model_->footJacobianDot(swing_side).block<3,3>(0, 6 + swing0);
-            Eigen::Vector3d qd_sw = q_dot.segment<3>(swing0);                                   // swing joint velocities
-            Eigen::Vector3d v_foot_sw = Jsw * qd_sw;                                            // actual foot vel (world)
+            // Full-width Jacobians (3 x nv), NOT the 3x3 leg blocks the old node used.
+            // The QP reasons about all 12 DOFs, so it needs every column.
+            Eigen::Vector3d p_foot_sw     = model_->footPose(swing_side).translation();
+            Eigen::MatrixXd Jsw_full      = model_->footJacobian(swing_side);
+            Eigen::MatrixXd Jsw_dot_full  = model_->footJacobianDot(swing_side);
+
+            // Foot velocity from LEG MOTION ONLY, matching inverse_dynamics_node exactly.
+            // The true world velocity is Jsw_full * v, which also includes base motion --
+            // switching to it changes the damping term, so leave it alone until the QP
+            // itself is validated in the loop. One variable at a time.
+            Eigen::Vector3d qd_sw     = q_dot.segment<3>(swing0);
+            Eigen::Vector3d v_foot_sw = Jsw_full.block<3,3>(0, 6 + swing0) * qd_sw;
 
             // Hold the current foot position until the first target arrives (avoids a startup yank).
             Eigen::Vector3d p_des = have_p_des_ ? p_des_ : p_foot_sw;
 
+            // The feedback law is unchanged. a_des is the commanded foot acceleration;
+            // the WBC takes it as given and knows nothing about these gains.
             Eigen::Vector3d x_ddot = a_des_ + Kp_s.cwiseProduct(p_des - p_foot_sw)
                                    - Kd_s.cwiseProduct(v_foot_sw)
                                    + Kff_s.cwiseProduct(v_des_);
 
-            // Calculate q_ddot 
-            Eigen::Vector3d q_ddot = Jsw.inverse() * (x_ddot - Jsw_dot * qd_sw);
+            // Generalised velocity, MuJoCo DOF order: 3 base linear, 3 base angular,
+            // then the 6 joints. Every Jdot*v term in the QP uses this.
+            Eigen::VectorXd v(model_->nv());
+            v.segment<3>(0) = state_.base_lin_vel;
+            v.segment<3>(3) = state_.base_ang_vel;
+            v.tail<6>()     = q_dot;
 
-            // Caculate torque using q_ddot
-            Eigen::MatrixXd Mass = model_->massMatrix();
-            Eigen::VectorXd h = model_->biasForces();
-            Eigen::Matrix3d M_leg = Mass.block<3,3>(6 + swing0, 6 + swing0);
-            Eigen::Vector3d h_leg = h.segment<3>(6 + swing0);
+            // ----------------------------------------------------------------
+            // TODO 1: assemble the QP. Order matters only in that reset() is first.
+            //
+            //   wbc_->reset();
+            //   wbc_->setDynamics(model_->massMatrix(), model_->biasForces());
+            //   wbc_->setStanceContact(model_->footJacobian(stance_),
+            //                          model_->footJacobianDot(stance_), v);
+            //   wbc_->addSwingTask(Jsw_full, Jsw_dot_full, v, x_ddot, swing_weight_);
+            // ----------------------------------------------------------------
 
-            tau.segment<3>(swing0) = M_leg * q_ddot + h_leg;
+            wbc_->reset();
+            wbc_->setDynamics(model_->massMatrix(), model_->biasForces());
+            wbc_->setStanceContact(model_->footJacobian(stance_), model_->footJacobianDot(stance_), v);
+            wbc_->addSwingTask(Jsw_full, Jsw_dot_full, v, x_ddot, swing_weight_);
+
+            wbc_->solve();
+
+            // ----------------------------------------------------------------
+            // TODO 2: solve, and CHECK THE STATUS before touching the results.
+            //
+            // A dual-infeasible solve returns finite, plausible-looking numbers --
+            // this is where the 578 MNm torques came from. There is no NaN to catch.
+            //
+            const bool ok = (wbc_->solve() == control::WholeBodyController::Status::kOk);
+            // ----------------------------------------------------------------
+
+            // ----------------------------------------------------------------
+            // TODO 3: take the swing joints out of the recovered tau.
+            //
+            // wbc_->torques() is 6 long in the same order as tau -- left leg 0..2,
+            // right leg 3..5 -- so swing0 indexes both identically.
+            //
+            if (ok) {
+                tau.segment<3>(swing0) = wbc_->torques().segment<3>(swing0);
+                tau_swing_prev_ = tau.segment<3>(swing0);
+            } else {
+                tau.segment<3>(swing0) = tau_swing_prev_;   // hold last good command
+                ++qp_fail_count_;
+                RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
+                                    "WBC solve failed (%d total)", qp_fail_count_);
+            }
+            // ----------------------------------------------------------------
+
+
+            // ----------------------------------------------------------------
+            // TODO 4: log the QP diagnostics. swing_err is the residual
+            //   ||Jsw*qddot + Jswdot*v - x_ddot||, i.e. how much of the commanded
+            //   foot acceleration the solver actually delivered. It should be small;
+            //   a large value means the task is fighting the constraints.
+            //
+            double swing_err = ok
+                ? (Jsw_full * wbc_->accelerations() + Jsw_dot_full * v - x_ddot).norm()
+                : -1.0;
+            const Eigen::Vector3d Fc = ok ? wbc_->contactForce() : Eigen::Vector3d::Zero();
+            qp_log_ << std::fixed << std::setprecision(6)
+                    << t << "," << (ok ? 1 : 0) << "," << qp_fail_count_ << ","
+                    << Fc.x() << "," << Fc.y() << "," << Fc.z() << ","
+                    << swing_err << "\n";
+            // ----------------------------------------------------------------
+
 
             q_log_file_
                 << std::fixed << std::setprecision(6)
@@ -292,19 +371,14 @@ class inverse_dynamics_controller_node : public rclcpp::Node{
             base_ready_ = true;
         }
 
-        // void swing_vel_callback(const std_msgs::msg::Float64MultiArray &msg) {
-        //     if (msg.data.size() < 3) return;
-        //     v_des_ = Eigen::Vector3d{msg.data[0], msg.data[1], msg.data[2]};
-        // }
-
         rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr publisher_;
         rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr p_subscriber_;
         rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr js_subscriber_;
         rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
         rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr stance_sub_;
-        // rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr swing_vel_sub_;
 
         std::unique_ptr<dynamics::RobotModel> model_;
+        std::unique_ptr<control::WholeBodyController> wbc_;
         robot::RobotState state_;
 
         // Swing-foot task-space reference and gains.
@@ -315,9 +389,22 @@ class inverse_dynamics_controller_node : public rclcpp::Node{
 
         Eigen::Vector3d Kp_s {1600.0, 1600.00, 1600.0};   // N/m
         Eigen::Vector3d Kd_s {80.0, 64.0, 64.0};         // N.s/m   damping on measured velocity
-        // Started equal to Kd_s so splitting the gain is behaviour-neutral: any change
-        // you see comes from the trajectory, not from this refactor. Tune from here.
         Eigen::Vector3d Kff_s {80.0, 64.0, 100.0};        // N.s/m   feedforward on v_des
+
+        // QP parameters.
+        //
+        // reg must stay >= 1e-4 while the swing task is the only one: it makes P
+        // rank 15 instead of rank 3. Below that OSQP reports dual infeasible and
+        // returns garbage. Lower it once Stage D adds CoM and orientation tasks.
+        double wbc_reg_ {1e-4};
+
+        // 2.0 because addSwingTask uses P += w*J'J rather than 2w*J'J, so the
+        // effective weight is w/2. This value reproduces the Stage C reference
+        // torques [-24.05, 4.80, -19.23 | -3.01, 1.86, 1.23].
+        double swing_weight_ {2.0};
+
+        Eigen::Vector3d tau_swing_prev_ = Eigen::Vector3d::Zero();
+        int qp_fail_count_ = 0;
 
         bool map_built_ = false;
         bool base_ready_ = false;
@@ -328,7 +415,7 @@ class inverse_dynamics_controller_node : public rclcpp::Node{
             "right_hip_yaw", "right_hip_pitch", "right_knee"
         };
 
-        
+
         double tau_max_ {60.0};
 
         double Kp_h_ {2000.0};
@@ -352,12 +439,13 @@ class inverse_dynamics_controller_node : public rclcpp::Node{
         std::ofstream height_log_file_;
         std::ofstream posture_err_log_file_;
         std::ofstream force_log_;
+        std::ofstream qp_log_;
 
 };
 
 int main(int argc, char *argv[]) {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<inverse_dynamics_controller_node>());
+    rclcpp::spin(std::make_shared<wbc_controller_node>());
     rclcpp::shutdown();
     return 0;
 }

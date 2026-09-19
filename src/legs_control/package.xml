@@ -12,6 +12,7 @@
   <depend>rclcpp</depend>
   <depend>utilities</depend>
   <depend>legs_dynamics</depend>
+  <depend>osqp_vendor</depend>
   <depend>geometry_msgs</depend>
   <depend>std_msgs</depend>
   <depend>sensor_msgs</depend>
