@@ -26,13 +26,14 @@ using namespace std::chrono_literals;
 // Structurally identical to inverse_dynamics_node, with one difference: the swing
 // leg's joint torques come from the QP instead of a 3x3 Jacobian inverse.
 //
-//   stance leg - UNCHANGED from inverse_dynamics_node: gravity compensation +
-//                torso height PD + torso orientation PD, mapped through the stance
-//                foot Jacobian. The QP has no CoM or orientation task yet, so it
-//                cannot balance; taking all six of its torques would collapse the
-//                robot. The stance controller retires at Stage D.
-//   swing leg  - the WBC: solve for [qddot; Fc] over the whole body, then read the
-//                swing joints out of the recovered tau.
+// All six joint torques come from the QP. There is no separate stance controller:
+// height and attitude are tasks on the base, the stance foot is held by the contact
+// constraint, and gravity compensation is implicit in the bias forces h.
+//
+//   tasks       swing foot (3) + base z/roll/pitch (3) = 6, exactly the number of
+//               free dimensions, so the tasks do not compete for weight.
+//   untasked    base x, y and yaw -- horizontal balance is the footstep planner's
+//               job via the capture point, not the stance ankle's.
 //
 // Gait state is owned by the trajectory node; this node only consumes it.
 class wbc_controller_node : public rclcpp::Node{
@@ -53,6 +54,7 @@ class wbc_controller_node : public rclcpp::Node{
 
             // Must come after model_ -- the WBC needs nv to size its matrices.
             wbc_ = std::make_unique<control::WholeBodyController>(model_->nv(), wbc_reg_);
+            w_base_ << 0.0, 0.0, w_base_z_,  w_base_rp_, w_base_rp_, 0.0;
 
             timer_ = this->create_wall_timer(2ms, std::bind(&wbc_controller_node::control_loop, this));
 
@@ -111,23 +113,19 @@ class wbc_controller_node : public rclcpp::Node{
 
             double t = this->get_clock()->now().seconds();
 
-            Eigen::VectorXd tau, tau_g;
+            Eigen::VectorXd tau;
 
             Eigen::VectorXd q = state_.q;
             Eigen::VectorXd q_dot = state_.q_dot;
 
-            Eigen::VectorXd g = model_->gravityForces();
-
-            Eigen::MatrixXd Jt = model_->footJacobian(stance_).transpose();
-
-            Eigen::Vector3d F = Jt.topRows<3>().completeOrthogonalDecomposition().solve(g.head<3>());
-
             const int swing0 = (stance_ == legs::Side::Left) ? 3 : 0;
 
             // ================================================================
-            // STANCE LEG -- unchanged from inverse_dynamics_node.
-            // Do not replace this with the QP until Stage D adds CoM and
-            // orientation tasks. Today the QP's only task is the swing foot.
+            // BASE REFERENCE -- what the torso should do.
+            // These used to be PD force/moment laws mapped through J^T. Now they are
+            // just desired ACCELERATIONS handed to the QP, which derives the contact
+            // force and every joint torque itself. Gravity compensation is not here
+            // any more either -- it lives in the bias forces h.
             // ================================================================
 
             Eigen::Vector3d p_foot = model_->footPose(stance_).translation();
@@ -136,14 +134,8 @@ class wbc_controller_node : public rclcpp::Node{
 
             // Vertical: hold torso height above the stance foot.
             double torso_z = p_base.z() - p_foot.z();
-            F.z() += Kp_h_ * (z_target_ - torso_z) - Kd_h_ * v_base.z();
-
-            force_log_
-                << std::fixed << std::setprecision(6)
-                << t << ","
-                << F.x() << ","
-                << F.y() << ","
-                << F.z() << "\n";
+            // F.z() += Kp_h_ * (z_target_ - torso_z) - Kd_h_ * v_base.z();
+            base_acc_(2) = Kp_z_ * (z_target_ - torso_z) - Kd_z_ * v_base.z();
 
             height_log_file_
                 << std::fixed << std::setprecision(6)
@@ -151,14 +143,26 @@ class wbc_controller_node : public rclcpp::Node{
                 << torso_z << ","
                 << z_target_ << "\n";
 
-            tau_g = g.bottomRows<6>() - Jt.bottomRows<6>() * F;
-
             Eigen::Matrix3d R = state_.base_pose.rotation();
             Eigen::Matrix3d Rd = R_des_;
 
-            // Vee map of the skew part = a small angle rotation-vector error [roll pitch yaw]
+            // Vee map of the skew part = a small angle rotation-vector error [roll pitch yaw].
+            // KEPT FOR LOGGING ONLY -- do not drive the task with this. Its magnitude is
+            // sin(total rotation from Rd to R), yaw included, so an untasked yaw drift
+            // crushes the roll/pitch components toward zero and the tilt correction
+            // silently fades. That is what ended the 25 s run: yaw reached -0.98 rad and
+            // roll authority fell to ~30% of nominal.
             Eigen::Matrix3d skew = 0.5 * (Rd.transpose() * R - R.transpose() * Rd);
             Eigen::Vector3d e_rot(skew(2,1), skew(0,2), skew(1,0));
+
+            // Tilt error from GRAVITY instead. g_b is world "up" in body coordinates --
+            // on hardware this is just the normalised accelerometer reading, so nothing
+            // here needs a world-frame pose.
+            //
+            // e_tilt = ez x g_b = (-g_b.y, +g_b.x, 0): its z component is identically
+            // zero, so heading cannot contaminate it at any yaw.
+            const Eigen::Vector3d g_b    = R.transpose() * Eigen::Vector3d::UnitZ();
+            const Eigen::Vector3d e_tilt = Eigen::Vector3d::UnitZ().cross(g_b);
 
             Eigen::Vector3d rpy = R.eulerAngles(0, 1, 2);
             Eigen::Vector3d rpy_d = Rd.eulerAngles(0, 1, 2);
@@ -180,24 +184,19 @@ class wbc_controller_node : public rclcpp::Node{
                 << rpy_d.y() << ","
                 << rpy_d.z()<< "\n";
 
-            // PD moment on the torso, regulate the roll and pitch, leave the yaw alone
+            // Roll/pitch reference. Yaw is left free -- see w_base_.
             Eigen::Vector3d omega = state_.base_ang_vel;
-            Eigen::Vector3d M;
-            M.x() = Kp_o_ * e_rot.x() + Kd_o_ * omega.x();
-            M.y() = Kp_o_ * e_rot.y() + Kd_o_ * omega.y();
-            M.z() = 0.0;
 
-            // Map the stance joint torques via the rotational Jacobians joint columns
-            Eigen::MatrixXd Jfull = model_->footJacobianFull(stance_);
-            Eigen::MatrixXd Jr_joints = Jfull.bottomRows<3>().rightCols<6>();
-            Eigen::VectorXd tau_orient = Jr_joints.transpose() * M;
-
-            tau_g += tau_orient;
-
-            tau = tau_g;
+            // +Kp, -Kd: e_tilt already points along the CORRECTION axis, not the error
+            // axis, so the proportional term is positive while the damping opposes omega.
+            // Both e_tilt and omega are body-frame, which is why Jb's angular rows are
+            // set to identity below.
+            base_acc_(3) = Kp_rp_ * e_tilt.x() - Kd_rp_ * omega.x();
+            base_acc_(4) = Kp_rp_ * e_tilt.y() - Kd_rp_ * omega.y();
+            base_acc_(5) = 0.0;   // yaw untasked; e_tilt.z is identically zero anyway
 
             // ================================================================
-            // SWING LEG -- the WBC.
+            // THE QP -- now the ONLY source of joint torques, for both legs.
             // ================================================================
             legs::Side swing_side = (stance_ == legs::Side::Left) ? legs::Side::Right : legs::Side::Left;
 
@@ -206,6 +205,17 @@ class wbc_controller_node : public rclcpp::Node{
             Eigen::Vector3d p_foot_sw     = model_->footPose(swing_side).translation();
             Eigen::MatrixXd Jsw_full      = model_->footJacobian(swing_side);
             Eigen::MatrixXd Jsw_dot_full  = model_->footJacobianDot(swing_side);
+            // baseJacobian()'s angular rows are R (body -> world). The tilt task is
+            // expressed in the body frame, so replace them with the identity: MuJoCo
+            // stores free-joint qvel[3:6] as BODY-frame angular velocity, so I is the
+            // correct map there. Linear rows are [I|0|0] already and stay world-frame,
+            // which is what the height task wants ("up" comes from the same IMU).
+            //
+            // Both blocks are then constant, so Jb_dot is exactly zero -- consistent
+            // with baseJacobianDot()*v being identically zero anyway (w x w = 0).
+            Eigen::MatrixXd Jb = model_->baseJacobian();
+            Jb.block(3, 3, 3, 3).setIdentity();
+            const Eigen::MatrixXd Jb_dot = Eigen::MatrixXd::Zero(6, model_->nv());
 
             // Foot velocity from LEG MOTION ONLY, matching inverse_dynamics_node exactly.
             // The true world velocity is Jsw_full * v, which also includes base motion --
@@ -230,60 +240,40 @@ class wbc_controller_node : public rclcpp::Node{
             v.segment<3>(3) = state_.base_ang_vel;
             v.tail<6>()     = q_dot;
 
-            // ----------------------------------------------------------------
-            // TODO 1: assemble the QP. Order matters only in that reset() is first.
-            //
-            //   wbc_->reset();
-            //   wbc_->setDynamics(model_->massMatrix(), model_->biasForces());
-            //   wbc_->setStanceContact(model_->footJacobian(stance_),
-            //                          model_->footJacobianDot(stance_), v);
-            //   wbc_->addSwingTask(Jsw_full, Jsw_dot_full, v, x_ddot, swing_weight_);
-            // ----------------------------------------------------------------
-
             wbc_->reset();
             wbc_->setDynamics(model_->massMatrix(), model_->biasForces());
             wbc_->setStanceContact(model_->footJacobian(stance_), model_->footJacobianDot(stance_), v);
             wbc_->addSwingTask(Jsw_full, Jsw_dot_full, v, x_ddot, swing_weight_);
+            wbc_->addStanceTask(Jb, Jb_dot, v, base_acc_, w_base_);
 
-            wbc_->solve();
-
-            // ----------------------------------------------------------------
-            // TODO 2: solve, and CHECK THE STATUS before touching the results.
-            //
-            // A dual-infeasible solve returns finite, plausible-looking numbers --
-            // this is where the 578 MNm torques came from. There is no NaN to catch.
-            //
             const bool ok = (wbc_->solve() == control::WholeBodyController::Status::kOk);
-            // ----------------------------------------------------------------
-
-            // ----------------------------------------------------------------
-            // TODO 3: take the swing joints out of the recovered tau.
-            //
-            // wbc_->torques() is 6 long in the same order as tau -- left leg 0..2,
-            // right leg 3..5 -- so swing0 indexes both identically.
-            //
+            
             if (ok) {
-                tau.segment<3>(swing0) = wbc_->torques().segment<3>(swing0);
-                tau_swing_prev_ = tau.segment<3>(swing0);
+                tau = wbc_->torques();     // all 6: stance and swing both come from the QP
+                tau_prev_ = tau;
             } else {
-                tau.segment<3>(swing0) = tau_swing_prev_;   // hold last good command
+                // Nothing else is driving the legs now, so a failed solve means coasting
+                // on stale torques for BOTH legs. Watch fail_count in wbc_qp_log.csv.
+                tau = tau_prev_;
                 ++qp_fail_count_;
                 RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
-                                    "WBC solve failed (%d total)", qp_fail_count_);
+                                    "WBC solve failed (%d total) -- holding last torques",
+                                    qp_fail_count_);
             }
-            // ----------------------------------------------------------------
 
-
-            // ----------------------------------------------------------------
-            // TODO 4: log the QP diagnostics. swing_err is the residual
-            //   ||Jsw*qddot + Jswdot*v - x_ddot||, i.e. how much of the commanded
-            //   foot acceleration the solver actually delivered. It should be small;
-            //   a large value means the task is fighting the constraints.
-            //
             double swing_err = ok
                 ? (Jsw_full * wbc_->accelerations() + Jsw_dot_full * v - x_ddot).norm()
                 : -1.0;
             const Eigen::Vector3d Fc = ok ? wbc_->contactForce() : Eigen::Vector3d::Zero();
+
+            // Now the QP's contact force, not a force the node computed itself.
+            force_log_
+                << std::fixed << std::setprecision(6)
+                << t << ","
+                << Fc.x() << ","
+                << Fc.y() << ","
+                << Fc.z() << "\n";
+
             qp_log_ << std::fixed << std::setprecision(6)
                     << t << "," << (ok ? 1 : 0) << "," << qp_fail_count_ << ","
                     << Fc.x() << "," << Fc.y() << "," << Fc.z() << ","
@@ -386,6 +376,8 @@ class wbc_controller_node : public rclcpp::Node{
         bool have_p_des_ = false;
         Eigen::Vector3d v_des_ = Eigen::Vector3d::Zero();   // swing-foot velocity reference
         Eigen::Vector3d a_des_ = Eigen::Vector3d::Zero();
+        // 6 long: 3 linear then 3 angular, matching baseJacobian's row order.
+        Eigen::VectorXd base_acc_ = Eigen::VectorXd::Zero(6);
 
         Eigen::Vector3d Kp_s {1600.0, 1600.00, 1600.0};   // N/m
         Eigen::Vector3d Kd_s {80.0, 64.0, 64.0};         // N.s/m   damping on measured velocity
@@ -403,7 +395,26 @@ class wbc_controller_node : public rclcpp::Node{
         // torques [-24.05, 4.80, -19.23 | -3.01, 1.86, 1.23].
         double swing_weight_ {2.0};
 
-        Eigen::Vector3d tau_swing_prev_ = Eigen::Vector3d::Zero();
+        // Base-task weights, one per axis of baseJacobian:
+        //   [x, y, z | roll, pitch, yaw]
+        // x, y and yaw are deliberately ZERO -- horizontal balance and heading are
+        // the footstep planner's job, and tasking them fights the capture point.
+        // That leaves 3 base dimensions + 3 swing = 6, exactly the free dimensions,
+        // so the tasks do not compete and the magnitude barely matters above ~5.
+        double w_base_z_  {10.0};
+        double w_base_rp_ {10.0};
+        Eigen::VectorXd w_base_ = Eigen::VectorXd::Zero(6);
+
+        // Base-task gains in ACCELERATION units (1/s^2 and 1/s), NOT force units.
+        // Kp_z_ = Kp_h_/mass = 2000/12.736, Kd_z_ = Kd_h_/mass = 300/12.736: the QP
+        // derives the force itself from M, so mass must not be baked into the gain.
+        // (300/12.736 lands at damping ratio 0.94 -- near critical, as tuned.)
+        double Kp_z_  {157.0};
+        double Kd_z_  {23.6};
+        double Kp_rp_ {150.0};
+        double Kd_rp_ {25.0};
+
+        Eigen::VectorXd tau_prev_ = Eigen::VectorXd::Zero(6);
         int qp_fail_count_ = 0;
 
         bool map_built_ = false;

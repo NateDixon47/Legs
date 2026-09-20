@@ -24,6 +24,10 @@ class WholeBodyController {
     void setDynamics(const Eigen::MatrixXd& M, const Eigen::VectorXd& h);
     void setStanceContact(const Eigen::MatrixXd& Jc, const Eigen::MatrixXd& Jc_dot, const Eigen::VectorXd& v);
     void addSwingTask(const Eigen::MatrixXd& Js, const Eigen::MatrixXd& Js_dot, const Eigen::VectorXd& v, const Eigen::Vector3d& a_des, double weight);
+    // Jb is 6 x nv (baseJacobian): 3 linear rows then 3 angular. a_des and weight are
+    // both 6 long; a zero weight drops that axis out of the cost entirely.
+    void addStanceTask(const Eigen::MatrixXd& Jb, const Eigen::MatrixXd& Jb_dot, const Eigen::VectorXd& v, const Eigen::VectorXd& a_des, const Eigen::VectorXd& weight);
+
     Status solve();                                                 // returns, so it cannot be ignored
 
     // --- results, valid only when status() == kOk ---------------------------

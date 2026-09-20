@@ -71,6 +71,18 @@ void WholeBodyController::addSwingTask(const Eigen::MatrixXd& Js, const Eigen::M
     q_.head(nv_) += -A_swing.transpose() * W * b;
 }
 
+void WholeBodyController::addStanceTask(const Eigen::MatrixXd& Jb, const Eigen::MatrixXd& Jb_dot, const Eigen::VectorXd& v, const Eigen::VectorXd& a_des, const Eigen::VectorXd& weight) {
+    // Jb is 6 x nv. A zero entry in weight drops that row out of J'WJ, leaving the
+    // axis free -- that is how base x, y and yaw stay with the footstep planner.
+    const Eigen::VectorXd b = a_des - Jb_dot * v;
+    Eigen::MatrixXd W = weight.asDiagonal();
+
+    P_.topLeftCorner(nv_, nv_) += Jb.transpose() * W * Jb;
+    q_.head(nv_) += -Jb.transpose() * W * b;
+}
+
+
+
 namespace {
 
 // Dense -> compressed sparse column, the only format OSQP accepts.
