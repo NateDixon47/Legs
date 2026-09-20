@@ -44,7 +44,9 @@ class CP_Node : public rclcpp::Node{
 
             stance_sub_ = this->create_subscription<std_msgs::msg::Int32>("/stance", 10,
                  [this](const std_msgs::msg::Int32 &msg) {
-                    stance_ = (msg.data == 0) ? legs::Side::Left : legs::Side::Right;
+                    legs::Side s = (msg.data == 0) ? legs::Side::Left : legs::Side::Right;
+                    if (s != stance_) { t_liftoff_ = this->get_clock()->now().seconds(); }
+                    stance_ = s;
                     });
 
 
@@ -66,10 +68,11 @@ class CP_Node : public rclcpp::Node{
         rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr step_pub_;
         
 
-        Eigen::Vector3d x_dot_des_ {0.0, 0.0, 0.0};
+        Eigen::Vector3d x_dot_des_ {0.85, 0.0, 0.0};
         std::unique_ptr<dynamics::RobotModel> model_;
         robot::RobotState state_;
         capturepoint::CapturePoint cp_;
+        double T_ = 0.2;
 
         std::ofstream cp_log_;
 
@@ -85,6 +88,7 @@ class CP_Node : public rclcpp::Node{
         Eigen::Vector2d x_ddot_filt_ = Eigen::Vector2d::Zero();
         double t_prev_a_ = 0.0;
         bool have_prev_a_ = false;
+        double t_liftoff_;
 
         const std::array<std::string, 6> joint_order_{
             "left_hip_yaw", "left_hip_pitch", "left_knee",
@@ -157,6 +161,8 @@ class CP_Node : public rclcpp::Node{
 
             double t = this->get_clock()->now().seconds();
 
+            double t_swing = std::clamp(t - t_liftoff_, 0.0, T_);
+
             Eigen::Vector2d xi = cp_.compute_cp(x, x_dot);
 
             // Measured torso acceleration = low-pass-filtered finite-diff of x_dot
@@ -170,7 +176,9 @@ class CP_Node : public rclcpp::Node{
             t_prev_a_ = t;
             have_prev_a_ = true;
 
-            Eigen::Vector2d step = cp_.compute_px(x, x_dot, x_ddot_filt_, x_dot_des_.head<2>());
+            // Eigen::Vector2d step = cp_.compute_px(x, x_dot, x_ddot_filt_, x_dot_des_.head<2>());
+            Eigen::Vector2d xi_eos = cp_.predict_eos(xi, Eigen::Vector2d::Zero(), T_, t_swing);
+            Eigen::Vector2d step = cp_.step_location(xi_eos, x_dot_des_.head<2>(), T_);
 
             step.x() = std::clamp(step.x(), -0.2, 0.3);
 

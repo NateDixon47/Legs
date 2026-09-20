@@ -54,7 +54,7 @@ class wbc_controller_node : public rclcpp::Node{
 
             // Must come after model_ -- the WBC needs nv to size its matrices.
             wbc_ = std::make_unique<control::WholeBodyController>(model_->nv(), wbc_reg_);
-            w_base_ << 0.0, 0.0, w_base_z_,  w_base_rp_, w_base_rp_, 0.0;
+            w_base_ << 20.0, w_base_z_, w_base_z_,  w_base_rp_, w_base_rp_, 20.0;
 
             timer_ = this->create_wall_timer(2ms, std::bind(&wbc_controller_node::control_loop, this));
 
@@ -134,8 +134,15 @@ class wbc_controller_node : public rclcpp::Node{
 
             // Vertical: hold torso height above the stance foot.
             double torso_z = p_base.z() - p_foot.z();
+            Eigen::Vector3d torso = p_base - p_foot;
             // F.z() += Kp_h_ * (z_target_ - torso_z) - Kd_h_ * v_base.z();
+            double torso_target_x = torso.x() + 0.0 * 0.002; // Hard coded for now, desired vel for x and y is 0
+            double torso_target_y = torso.y() + 0.0 * 0.002;
+
+            base_acc_(0) = Kp_z_ * (torso_target_x - torso.x()) - Kd_z_ * v_base.x();
+            base_acc_(1) = Kp_z_ * (torso_target_y - torso.y()) - Kd_z_ * v_base.y();
             base_acc_(2) = Kp_z_ * (z_target_ - torso_z) - Kd_z_ * v_base.z();
+
 
             height_log_file_
                 << std::fixed << std::setprecision(6)
@@ -193,7 +200,7 @@ class wbc_controller_node : public rclcpp::Node{
             // set to identity below.
             base_acc_(3) = Kp_rp_ * e_tilt.x() - Kd_rp_ * omega.x();
             base_acc_(4) = Kp_rp_ * e_tilt.y() - Kd_rp_ * omega.y();
-            base_acc_(5) = 0.0;   // yaw untasked; e_tilt.z is identically zero anyway
+            base_acc_(5) = Kp_rp_ * e_tilt.z() - Kd_rp_ * omega.z();
 
             // ================================================================
             // THE QP -- now the ONLY source of joint torques, for both legs.

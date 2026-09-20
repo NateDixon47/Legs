@@ -10,7 +10,7 @@ namespace capturepoint {
 
 class CapturePoint {
     public:
-        CapturePoint() : K_(1.0, 1.0),  height_(0.475){}
+        CapturePoint() : K_(5.0, 1.0),  height_(0.475){}
 
         Eigen::Vector2d compute_cp(const Eigen::Vector2d &x, const Eigen::Vector2d &x_dot) {
             return x + x_dot/w_;
@@ -47,16 +47,6 @@ class CapturePoint {
             return output;
         }
 
-        // Eigen::Vector3d swing_trajectory(double T, double t_swing, Eigen::Vector2d p_start, Eigen::Vector2d p_des, double step_height) {
-        //     // Horizontal: track the foothold directly from the start (no interpolation).
-        //     double px = p_des[0];
-        //     double py = p_des[1];
-
-        //     // Vertical: adaptive sine profile; touchdown (pz=0) at t_swing = T.
-        //     double pz = swing_height(t_swing, T, step_height);
-
-        //     return {px, py, pz};
-        // }
 
         Eigen::Vector2d predict_eos(Eigen::Vector2d xi, Eigen::Vector2d p_stance, double T, double t_swing) {
             return p_stance + (xi - p_stance) * std::exp(w_*(T-t_swing));
@@ -81,7 +71,7 @@ class CapturePoint {
         double height_;
         double w_ = std::sqrt(9.81/height_);
         Eigen::Vector2d K_;
-        double leg_offset_ = 0.25; // left and right leg offset for step
+        double leg_offset_ = 0.0; // left and right leg offset for step
         int side_ = 1;
 
 };
